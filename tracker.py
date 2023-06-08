@@ -85,7 +85,7 @@ class NNMClub(Tracker):
         self.post_params['password'] = self.auth['password']
         self.base_url = urljoin(self.auth['url'], 'forum/')
         self.login_url = urljoin(self.base_url, 'login.php')
-        self.topic_url = urljoin(self.base_url, f'viewtopic.php?t={self.topic_id}')
+        self.topic_url = urljoin(self.base_url, f'viewtopic.php?p={self.topic_id}')
         self.download_url = ''
         self.magnet_find = {'title': 'Примагнититься'}
         self.actual_hash = self.get_actual_hash()
