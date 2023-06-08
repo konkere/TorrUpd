@@ -4,6 +4,7 @@
 import logging
 from client import QBT
 from config import Conf
+from bencoder import bdecode
 from tracker import RuTracker, NNMClub
 
 
@@ -33,6 +34,8 @@ def main():
             )
             if current_torrent['hash'].lower() != fresh_tracker.actual_hash.lower():
                 new_torrent = fresh_tracker.download_torrent()
+                new_torrent_decode = bdecode(new_torrent)
+                new_torrent_name = new_torrent_decode[b'info'][b'name'].decode('UTF-8')
                 if not sessions[tracker] and fresh_tracker.session:
                     sessions[tracker] = fresh_tracker.session
                 data = {
@@ -46,6 +49,11 @@ def main():
                     f'Updating the torrent — {current_torrent["name"]}'
                 )
                 client.add_torrent(torrent=new_torrent, data=data)
+                if new_torrent_name != current_torrent['name']:
+                    logging.warning(
+                        f'The torrent name has changed: {current_torrent["name"]} → {new_torrent_name}. '
+                        f'Duplicate files may appear.'
+                    )
 
 
 if __name__ == '__main__':
