@@ -19,11 +19,13 @@ class Conf:
         self.config.read(self.config_file)
         self.auth = {
             'rutracker': {
+                'url': self.read_config('RuTracker', 'url'),
                 'username': self.read_config('RuTracker', 'username'),
                 'password': self.read_config('RuTracker', 'password'),
                 'announcekey': self.read_config('RuTracker', 'announcekey'),
             },
             'nnmclub': {
+                'url': self.read_config('NNMClub', 'url'),
                 'username': self.read_config('NNMClub', 'username'),
                 'password': self.read_config('NNMClub', 'password'),
             },
@@ -50,10 +52,12 @@ class Conf:
 
     def create_config(self):
         self.config.add_section('RuTracker')
+        self.config.set('RuTracker', 'url', 'https://rutracker.org')
         self.config.set('RuTracker', 'username', 'TRUsername')
         self.config.set('RuTracker', 'password', 'TRPassword')
         self.config.set('RuTracker', 'announcekey', '1a2b3c4d5e6f7g8h9i0j10k11l12m13n')
         self.config.add_section('NNMClub')
+        self.config.set('NNMClub', 'url', 'https://nnmclub.to')
         self.config.set('NNMClub', 'username', 'NNMUsername')
         self.config.set('NNMClub', 'password', 'NNMPassword')
         self.config.add_section('qBittorrent')
@@ -86,7 +90,7 @@ class Conf:
             for line in file:
                 line = line.strip()
                 line_crop = line.lower().replace('[', '').replace(']', '')
-                if not line:
+                if not line or line[0] == '#':
                     continue
                 elif any(tracker_name == line_crop for tracker_name in tracker_ids.keys()):
                     tracker = re.match(tracker_pattern, line).group(1).lower()

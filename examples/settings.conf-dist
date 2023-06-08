@@ -1,9 +1,11 @@
 [RuTracker]
+url = https://rutracker.org
 username = TRUsername
 password = TRPassword
 announcekey = 1a2b3c4d5e6f7g8h9i0j10k11l12m13n
 
 [NNMClub]
+url = https://nnmclub.to
 username = NNMUsername
 password = NNMPassword
 

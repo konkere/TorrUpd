@@ -44,7 +44,7 @@ class RuTracker(Tracker):
         self.post_params['login_username'] = self.auth['username'].encode('Windows-1251')
         self.post_params['login_password'] = self.auth['password']
         self.announce_key = bytes(self.auth['announcekey'], 'UTF-8')
-        self.base_url = 'https://rutracker.org/forum/'
+        self.base_url = urljoin(self.auth['url'], 'forum/')
         self.login_url = urljoin(self.base_url, 'login.php')
         self.topic_url = urljoin(self.base_url, f'viewtopic.php?t={self.topic_id}')
         self.download_url = urljoin(self.base_url, f'dl.php?t={self.topic_id}')
@@ -83,7 +83,7 @@ class NNMClub(Tracker):
         super().__init__(*args, **kwargs)
         self.post_params['username'] = self.auth['username'].encode('Windows-1251')
         self.post_params['password'] = self.auth['password']
-        self.base_url = 'https://nnmclub.to/forum/'
+        self.base_url = urljoin(self.auth['url'], 'forum/')
         self.login_url = urljoin(self.base_url, 'login.php')
         self.topic_url = urljoin(self.base_url, f'viewtopic.php?t={self.topic_id}')
         self.download_url = ''
