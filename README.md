@@ -2,7 +2,7 @@
 
 A script for automatically checking the relevance of torrents and updating them in the torrent client.
 
-Supports trackers: RuTracker and NNM-Club.
+Supports trackers: RuTracker and NNM-Club (hash comparison in topics) and TeamHD (torrent size comparison in RSS, login problem due to reCaptcha).
 
 Supports clients: qBittorrent.
 
@@ -22,9 +22,11 @@ After first run fill data in files (in ``$HOME/.config/TorrUpd/`` directory):
 
 1.2. ``announcekey`` in section ``[RuTracker]`` (optional, crutch for fix broken announcers).
 
-1.3. ``url`` in tracker sections (optional, if the tracker url changes or to use a mirror).
+1.3. ``passkey`` in section ``[TeamHD]``
 
-1.4. ``host``, ``username`` and ``password`` in client section.
+1.4. ``url`` in tracker sections (optional, if the tracker url changes or to use a mirror).
+
+1.5. ``host``, ``username`` and ``password`` in client section.
 
 2. ``update.list``:
 

@@ -5,7 +5,7 @@ import logging
 from client import QBT
 from config import Conf
 from bencoder import bdecode
-from tracker import RuTracker, NNMClub
+from tracker import RuTracker, NNMClub, TeamHD, rss_parser
 
 
 def main():
@@ -13,8 +13,18 @@ def main():
     client = QBT(config.auth['qbittorrent'])
     sessions = {}
     trackers = {
-        'rutracker': RuTracker,
-        'nnmclub': NNMClub
+        'rutracker': {
+            'incarnation': RuTracker,
+            'fingerprint': 'hash',
+        },
+        'nnmclub': {
+            'incarnation': NNMClub,
+            'fingerprint': 'hash',
+        },
+        'teamhd': {
+            'incarnation': TeamHD,
+            'fingerprint': 'size',
+        },
     }
     logging.basicConfig(
         filename=config.log_file,
@@ -24,18 +34,21 @@ def main():
     )
     for tracker in config.tracker_ids.keys():
         sessions[tracker] = None
+        if trackers[tracker]['fingerprint'] == 'size' and config.tracker_ids[tracker]:
+            rss_url = f'{config.auth[tracker]["url"]}/rss.php?feed=dl&passkey={config.auth[tracker]["passkey"]}'
+            config.tracker_ids[tracker] = rss_parser(rss_url, config.tracker_ids[tracker])
     for tracker in config.tracker_ids.keys():
         for topic_id in config.tracker_ids[tracker]:
             current_torrent = client.get_torrent_by_topic(tracker, topic_id)
-            fresh_tracker = trackers[tracker](
+            fresh_tracker = trackers[tracker]['incarnation'](
                 auth=config.auth[tracker],
                 topic_id=topic_id,
                 session=sessions[tracker]
             )
-            if current_torrent['hash'].lower() != fresh_tracker.actual_hash.lower():
+            current_fingerprint = str(current_torrent[trackers[tracker]['fingerprint']]).lower()
+            if current_fingerprint != fresh_tracker.fingerprint.lower() and fresh_tracker.fingerprint:
                 new_torrent = fresh_tracker.download_torrent()
-                new_torrent_decode = bdecode(new_torrent)
-                new_torrent_name = new_torrent_decode[b'info'][b'name'].decode('UTF-8')
+                new_torrent_name = bdecode(new_torrent)[b'info'][b'name'].decode('UTF-8')
                 if not sessions[tracker] and fresh_tracker.session:
                     sessions[tracker] = fresh_tracker.session
                 data = {

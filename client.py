@@ -46,7 +46,9 @@ class QBT(TorrentClient):
         torrents = self.client.torrents_info()
         for torrent in torrents:
             comment = torrent.properties['comment']
-            if tracker in comment and topic_id in comment:
+            if isinstance(topic_id, dict) and tracker in comment and topic_id['topic_id'] in comment:
+                return torrent
+            elif isinstance(topic_id, str) and tracker in comment and topic_id in comment:
                 return torrent
         return None
 

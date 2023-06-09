@@ -6,6 +6,33 @@ import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from bencoder import bencode, bdecode
+from feedparser import parse as feed_parse
+
+
+def rss_parser(rss_url, ids):
+    null_entry_data = {
+        'topic_id': '',
+        'size': '',
+        'download_url': '',
+        'name': '',
+    }
+    result_entries = {guid: null_entry_data for guid in ids}
+    guid_pattern = r'\/(\d*)$'
+    feed = feed_parse(rss_url)
+    if feed.status == 200:
+        entries = reversed(feed['entries'])
+        for entry in entries:
+            entry_id = re.search(guid_pattern, entry['id']).group(1)
+            if entry_id in ids:
+                entry_data = {
+                    'topic_id': entry_id,
+                    'size': entry['links'][-1]['length'],
+                    'download_url': entry['link'],
+                    'name': entry['title']
+                }
+                result_entries[entry_id] = entry_data
+    new_ids = list(result_entries.values())
+    return new_ids
 
 
 class Tracker:
@@ -49,7 +76,7 @@ class RuTracker(Tracker):
         self.topic_url = urljoin(self.base_url, f'viewtopic.php?t={self.topic_id}')
         self.download_url = urljoin(self.base_url, f'dl.php?t={self.topic_id}')
         self.magnet_find = {'class': 'magnet-link'}
-        self.actual_hash = self.get_actual_hash()
+        self.fingerprint = self.get_actual_hash()
 
     def download_torrent(self):
         if not self.session:
@@ -88,7 +115,7 @@ class NNMClub(Tracker):
         self.topic_url = urljoin(self.base_url, f'viewtopic.php?p={self.topic_id}')
         self.download_url = ''
         self.magnet_find = {'title': 'Примагнититься'}
-        self.actual_hash = self.get_actual_hash()
+        self.fingerprint = self.get_actual_hash()
 
     def download_torrent(self):
         if not self.session:
@@ -102,3 +129,16 @@ class NNMClub(Tracker):
         topic = BeautifulSoup(response.text, features='html.parser')
         href = topic.find(lambda tag: tag.name == 'a' and 'Скачать' in tag.text).get('href')
         return href
+
+
+class TeamHD(Tracker):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.download_url = self.topic_id['download_url']
+        self.fingerprint = self.topic_id['size']
+
+    def download_torrent(self):
+        response = requests.get(self.download_url)
+        torrent = response.content
+        return torrent

@@ -29,6 +29,10 @@ class Conf:
                 'username': self.read_config('NNMClub', 'username'),
                 'password': self.read_config('NNMClub', 'password'),
             },
+            'teamhd': {
+                'url': self.read_config('TeamHD', 'url'),
+                'passkey': self.read_config('TeamHD', 'passkey'),
+            },
             'qbittorrent': {
                 'host': self.read_config('qBittorrent', 'host'),
                 'username': self.read_config('qBittorrent', 'username'),
@@ -60,6 +64,9 @@ class Conf:
         self.config.set('NNMClub', 'url', 'https://nnmclub.to')
         self.config.set('NNMClub', 'username', 'NNMUsername')
         self.config.set('NNMClub', 'password', 'NNMPassword')
+        self.config.add_section('TeamHD')
+        self.config.set('TeamHD', 'url', 'https://teamhd.org')
+        self.config.set('TeamHD', 'passkey', '1a2b3c4d5e6f7g8h9i0j10k11l12m13n')
         self.config.add_section('qBittorrent')
         self.config.set('qBittorrent', 'host', 'qBtHostURL:port')
         self.config.set('qBittorrent', 'username', 'qBtUsername')
@@ -83,6 +90,7 @@ class Conf:
         tracker_ids = {
             'rutracker': [],
             'nnmclub': [],
+            'teamhd': [],
         }
         tracker_pattern = r'^\[([A-z]*)\]$'
         id_pattern = r'^(\d*)'
