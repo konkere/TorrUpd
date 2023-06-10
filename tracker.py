@@ -4,9 +4,9 @@
 import re
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin
 from bencoder import bencode, bdecode
 from feedparser import parse as feed_parse
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 
 def rss_parser(rss_url, ids):
@@ -33,6 +33,12 @@ def rss_parser(rss_url, ids):
                 result_entries[entry_id] = entry_data
     new_ids = list(result_entries.values())
     return new_ids
+
+
+def extract_base_url(url):
+    split_url = urlsplit(url)
+    base_url = urlunsplit((split_url.scheme, split_url.netloc, '', '', ''))
+    return str(base_url)
 
 
 class Tracker:
@@ -137,6 +143,8 @@ class TeamHD(Tracker):
         super().__init__(*args, **kwargs)
         self.download_url = self.topic_id['download_url']
         self.fingerprint = self.topic_id['size']
+        self.base_url = extract_base_url(self.download_url)
+        self.topic_url = urljoin(self.base_url, f'details/id{self.topic_id["topic_id"]}')
 
     def download_torrent(self):
         response = requests.get(self.download_url)

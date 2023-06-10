@@ -58,7 +58,7 @@ def main():
                 }
                 client.remove_torrent(current_torrent['hash'])
                 logging.info(
-                    f'The torrent hash in topic {fresh_tracker.topic_url} has changed. '
+                    f'The torrent {trackers[tracker]["fingerprint"]} in topic {fresh_tracker.topic_url} has changed. '
                     f'Updating the torrent — {current_torrent["name"]}'
                 )
                 client.add_torrent(torrent=new_torrent, data=data)
