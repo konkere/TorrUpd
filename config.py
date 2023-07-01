@@ -2,8 +2,36 @@
 # -*- coding: utf-8 -*-
 
 import re
+from client import QBT
 from os import path, getenv, mkdir
 from configparser import ConfigParser
+
+
+def get_ids_from_file(update_file, tracker_ids):
+    tracker = None
+    tracker_pattern = r'^\[([A-z]*)\]$'
+    id_pattern = r'^(\d*)'
+    with open(update_file) as file:
+        for line in file:
+            line = line.strip()
+            line_crop = line.lower().replace('[', '').replace(']', '')
+            if not line or line[0] == '#':
+                continue
+            elif any(tracker_name == line_crop for tracker_name in tracker_ids.keys()):
+                tracker = re.match(tracker_pattern, line).group(1).lower()
+            else:
+                topic_id = re.match(id_pattern, line).group(1)
+                tracker_ids[tracker].append(topic_id)
+    return tracker_ids
+
+
+def get_ids_from_client(client, tracker_ids):
+    torrents = client.all_torrents()
+    all_trackers = list(torrents.keys())
+    for tracker in all_trackers:
+        if tracker not in tracker_ids.keys():
+            del torrents[tracker]
+    return torrents
 
 
 class Conf:
@@ -15,8 +43,8 @@ class Conf:
         self.log_file = path.join(self.work_dir, 'torrent_updater.log')
         self.config = ConfigParser()
         self.exist()
-        self.tracker_ids = self.read_update_file()
         self.config.read(self.config_file)
+        self.source = self.read_config('Settings', 'source')
         self.auth = {
             'rutracker': {
                 'url': self.read_config('RuTracker', 'url'),
@@ -39,6 +67,16 @@ class Conf:
                 'password': self.read_config('qBittorrent', 'password'),
             },
         }
+        self.client = self.generate_client()
+        self.tracker_ids = self.get_ids()
+
+    def generate_client(self):
+        clients = {
+            'qbittorrent': QBT,
+        }
+        client_name = self.read_config('Settings', 'client').lower()
+        client = clients[client_name](self.auth[client_name])
+        return client
 
     def exist(self):
         if not path.isdir(self.work_dir):
@@ -71,12 +109,15 @@ class Conf:
         self.config.set('qBittorrent', 'host', 'qBtHostURL:port')
         self.config.set('qBittorrent', 'username', 'qBtUsername')
         self.config.set('qBittorrent', 'password', 'qBtPassword')
+        self.config.add_section('Settings')
+        self.config.set('Settings', 'client', 'qBittorrent')
+        self.config.set('Settings', 'source', 'file')
         with open(self.config_file, 'w') as file:
             self.config.write(file)
         raise FileNotFoundError(f'Required to fill data in config: {self.config_file}')
 
     def create_update_file(self):
-        update_info = '[RuTracker]\n\n[NNMClub]\n'
+        update_info = '[RuTracker]\n\n[NNMClub]\n\n[TeamHD]\n'
         with open(self.update_file, 'w') as file:
             file.write(update_info)
         raise FileNotFoundError(f'Required to fill list of topics id in: {self.update_file}')
@@ -85,24 +126,14 @@ class Conf:
         value = self.config.get(section, setting)
         return value
 
-    def read_update_file(self):
-        tracker = None
+    def get_ids(self):
         tracker_ids = {
             'rutracker': [],
             'nnmclub': [],
             'teamhd': [],
         }
-        tracker_pattern = r'^\[([A-z]*)\]$'
-        id_pattern = r'^(\d*)'
-        with open(self.update_file) as file:
-            for line in file:
-                line = line.strip()
-                line_crop = line.lower().replace('[', '').replace(']', '')
-                if not line or line[0] == '#':
-                    continue
-                elif any(tracker_name == line_crop for tracker_name in tracker_ids.keys()):
-                    tracker = re.match(tracker_pattern, line).group(1).lower()
-                else:
-                    topic_id = re.match(id_pattern, line).group(1)
-                    tracker_ids[tracker].append(topic_id)
+        if self.source == 'file':
+            tracker_ids = get_ids_from_file(self.update_file, tracker_ids)
+        else:
+            tracker_ids = get_ids_from_client(self.client, tracker_ids)
         return tracker_ids

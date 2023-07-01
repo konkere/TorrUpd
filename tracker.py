@@ -58,8 +58,11 @@ class Tracker:
     def get_actual_hash(self):
         response = requests.get(self.topic_url)
         topic = BeautifulSoup(response.text, features='html.parser')
-        magnet = topic.find('a', self.magnet_find).get('href')
-        torrent_hash = re.search(self.hash_pattern, magnet).group(1)
+        try:
+            magnet = topic.find('a', self.magnet_find).get('href')
+            torrent_hash = re.search(self.hash_pattern, magnet).group(1)
+        except AttributeError:
+            torrent_hash = ''
         return torrent_hash
 
     def create_session(self):

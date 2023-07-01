@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import re
 from qbittorrentapi import Client
 from qbittorrentapi.torrents import TorrentDictionary
 
@@ -20,6 +21,9 @@ class TorrentClient:
         pass
 
     def remove_torrent(self, torrent_info):
+        pass
+
+    def all_torrents(self):
         pass
 
 
@@ -67,3 +71,20 @@ class QBT(TorrentClient):
             tags=data['tags'],
             save_path=data['path'],
         )
+
+    def all_torrents(self):
+        torrents = {}
+        pattern = r'^https?://([A-z-]*)\..*[d=](\d*)$'
+        for torrent in self.client.torrents_info():
+            comment = torrent.properties['comment']
+            re_comment = re.match(pattern, comment)
+            try:
+                tracker_name = re_comment.group(1)
+                topic_id = re_comment.group(2)
+            except AttributeError:
+                continue
+            try:
+                torrents[tracker_name].append(topic_id)
+            except KeyError:
+                torrents[tracker_name] = [topic_id]
+        return torrents

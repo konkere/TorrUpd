@@ -17,3 +17,7 @@ passkey = 1a2b3c4d5e6f7g8h9i0j10k11l12m13n
 host = https://qBtHostURL:port
 username = qBtUsername
 password = qBtPassword
+
+[Settings]
+client = qBittorrent
+source = file
