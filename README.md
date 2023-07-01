@@ -28,7 +28,7 @@ After first run fill data in files (in ``$HOME/.config/TorrUpd/`` directory):
 
 1.5. ``host``, ``username`` and ``password`` in client section.
 
-1.6. in section ``[Settings]`` set ``client`` name and source for IDs (``file`` is default, ``client`` for check all torrents)
+1.6. in section ``[Settings]`` set ``client`` name and ``source`` for IDs (``file`` is default, ``client`` for check all torrents)
 
 2. ``update.list``:
 
