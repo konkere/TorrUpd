@@ -10,6 +10,7 @@ class TorrentClient:
     def __init__(self, auth):
         self.auth = auth
         self.client = None
+        self.force_state = None
 
     def generate_client(self):
         pass
@@ -32,6 +33,7 @@ class QBT(TorrentClient):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.client = self.generate_client()
+        self.force_state = 'forcedUP'
 
     def generate_client(self):
         qbt_client = Client(
@@ -71,6 +73,9 @@ class QBT(TorrentClient):
             tags=data['tags'],
             save_path=data['path'],
         )
+        if data['state'] == self.force_state:
+            torrent_hash = self.get_torrent_by_topic(data['tracker'], data['topic_id'])['hash']
+            self.client.torrents.set_force_start(torrent_hashes=torrent_hash)
 
     def all_torrents(self):
         torrents = {}

@@ -53,6 +53,9 @@ def main():
                     'category': current_torrent['category'],
                     'tags': current_torrent['tags'],
                     'path': current_torrent['save_path'],
+                    'state': current_torrent['state'],
+                    'tracker': tracker,
+                    'topic_id': topic_id,
                 }
                 config.client.remove_torrent(current_torrent['hash'])
                 logging.info(
