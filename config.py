@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import re
-from client import QBT
+from client import QBT, TM
 from os import path, getenv, mkdir
 from configparser import ConfigParser
 
@@ -26,12 +26,12 @@ def get_ids_from_file(update_file, tracker_ids):
 
 
 def get_ids_from_client(client, tracker_ids):
-    torrents = client.all_torrents()
-    all_trackers = list(torrents.keys())
+    topics = client.all_topics()
+    all_trackers = list(topics.keys())
     for tracker in all_trackers:
         if tracker not in tracker_ids.keys():
-            del torrents[tracker]
-    return torrents
+            del topics[tracker]
+    return topics
 
 
 class Conf:
@@ -66,6 +66,13 @@ class Conf:
                 'username': self.read_config('qBittorrent', 'username'),
                 'password': self.read_config('qBittorrent', 'password'),
             },
+            'transmission': {
+                'protocol':  self.read_config('Transmission', 'protocol'),
+                'host': self.read_config('Transmission', 'host'),
+                'port': self.read_config('Transmission', 'port'),
+                'username': self.read_config('Transmission', 'username'),
+                'password': self.read_config('Transmission', 'password'),
+            },
         }
         self.client = self.generate_client()
         self.tracker_ids = self.get_ids()
@@ -73,6 +80,7 @@ class Conf:
     def generate_client(self):
         clients = {
             'qbittorrent': QBT,
+            'transmission': TM,
         }
         client_name = self.read_config('Settings', 'client').lower()
         client = clients[client_name](self.auth[client_name])
@@ -109,6 +117,12 @@ class Conf:
         self.config.set('qBittorrent', 'host', 'qBtHostURL:port')
         self.config.set('qBittorrent', 'username', 'qBtUsername')
         self.config.set('qBittorrent', 'password', 'qBtPassword')
+        self.config.add_section('Transmission')
+        self.config.set('Transmission', 'protocol', 'http')
+        self.config.set('Transmission', 'host', 'TMHostURL')
+        self.config.set('Transmission', 'port', 'TMport')
+        self.config.set('Transmission', 'username', 'TMUsername')
+        self.config.set('Transmission', 'password', 'TMPassword')
         self.config.add_section('Settings')
         self.config.set('Settings', 'client', 'qBittorrent')
         self.config.set('Settings', 'source', 'file')

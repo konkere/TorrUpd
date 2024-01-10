@@ -4,7 +4,7 @@ A script for automatically checking the relevance of torrents and updating them 
 
 Supports trackers: RuTracker and NNM-Club (hash comparison in topics) and TeamHD (torrent size comparison in RSS, login problem due to reCaptcha).
 
-Supports clients: qBittorrent.
+Supports clients: qBittorrent, Transmission.
 
 **Python 3.10** required.
 
@@ -26,7 +26,7 @@ After first run fill data in files (in ``$HOME/.config/TorrUpd/`` directory):
 
 1.4. ``url`` in tracker sections (optional, if the tracker url changes or to use a mirror).
 
-1.5. ``host``, ``username`` and ``password`` in client section.
+1.5. ``host``, ``username`` and ``password`` in client section (fill out separately for Transmission: ``protocol`` and ``port``).
 
 1.6. in section ``[Settings]`` set ``client`` name and ``source`` for IDs (``file`` is default, ``client`` for check all torrents)
 

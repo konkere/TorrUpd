@@ -18,6 +18,13 @@ host = https://qBtHostURL:port
 username = qBtUsername
 password = qBtPassword
 
+[Transmission]
+protocol = http
+host = TMHostURL
+port = TMport
+username = TMUsername
+password = TMPassword
+
 [Settings]
 client = qBittorrent
 source = file
