@@ -1,5 +1,4 @@
-# Torrent updater
-
+![Torrent updater](/img/TorrUpd.jpg)
 A script for automatically checking the relevance of torrents and updating them in the torrent client.
 
 Supports trackers: RuTracker and NNM-Club (hash comparison in topics) and TeamHD (torrent size comparison in RSS, login problem due to reCaptcha).
