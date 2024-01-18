@@ -5,6 +5,7 @@ Supports trackers: RuTracker and NNM-Club (hash comparison in topics) and TeamHD
 
 Supports clients: qBittorrent, Transmission.
 
+#### Host/venv run:
 **Python 3.10** required.
 
 
@@ -12,8 +13,11 @@ Supports clients: qBittorrent, Transmission.
 
 ``config.py``, ``client.py``, ``tracker.py`` — related modules.
 
+#### Run in Docker:
+``docker run -d --rm --name=torrupd -v /PATH/TO/HOST/DIR:/config ghcr.io/konkere/torrupd``
 
-After first run fill data in files (in ``$HOME/.config/TorrUpd/`` directory):
+#### After first run:
+Fill data in files in ``$HOME/.config/TorrUpd/`` (or ``/PATH/TO/HOST/DIR`` for Docker) directory:
 
 1. ``settings.conf``:
 
