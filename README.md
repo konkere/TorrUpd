@@ -1,5 +1,5 @@
 ![Torrent updater](/img/TorrUpd.jpg)
-A script for automatically checking the relevance of torrents and updating them in the torrent client.
+Tool for automatically checking the relevance of torrents and updating them in the torrent client.
 
 Supports trackers: RuTracker and NNM-Club (hash comparison in topics) and TeamHD (torrent size comparison in RSS, login problem due to reCaptcha).
 
@@ -8,13 +8,26 @@ Supports clients: qBittorrent, Transmission.
 #### Host/venv run:
 **Python 3.10** required.
 
+```shell
+git clone https://github.com/konkere/TorrUpd.git
+cd TorrUpd
+python -m venv venv
+source ./venv/bin/activate
+pip install -r requirements.txt
+python torrent_updater.py
+````
 
 ``torrent_updater.py`` — main script.
 
 ``config.py``, ``client.py``, ``tracker.py`` — related modules.
 
 #### Run in Docker:
-``docker run -d --rm --name=torrupd -v /PATH/TO/HOST/DIR:/config ghcr.io/konkere/torrupd``
+```shell
+docker run -d --rm \
+            --name=torrupd \
+            -v /PATH/TO/HOST/DIR:/config \
+            ghcr.io/konkere/torrupd:latest
+```
 
 #### After first run:
 Fill data in files in ``$HOME/.config/TorrUpd/`` (or ``/PATH/TO/HOST/DIR`` for Docker) directory:
