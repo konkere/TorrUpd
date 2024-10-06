@@ -1,7 +1,7 @@
 ![Torrent updater](/.github/img/TorrUpd.jpg)
 Tool for automatically checking the relevance of torrents and updating them in the torrent client.
 
-Supports trackers: RuTracker and NNM-Club (hash comparison in topics) and TeamHD (torrent size comparison in RSS, login problem due to reCaptcha).
+Supports trackers: RuTracker and NNM-Club (hash comparison in topics), Kinozal (torrent size comparison in topics) and TeamHD (torrent size comparison in RSS, login problem due to reCaptcha).
 
 Supports clients: qBittorrent, Transmission.
 
@@ -44,7 +44,7 @@ Fill data in files in ``$HOME/.config/TorrUpd/`` (or ``/PATH/TO/HOST/DIR`` for D
 
 1.5. ``host``, ``username`` and ``password`` in client section (fill out separately for Transmission: ``protocol`` and ``port``).
 
-1.6. in section ``[Settings]`` set ``client`` name and ``source`` for IDs (``file`` is default, ``client`` for check all torrents)
+1.6. in section ``[Settings]`` set ``client`` name and ``source`` for IDs (``client`` for check all torrents, ``file`` for limited checking list from file)
 
 2. ``update.list``:
 

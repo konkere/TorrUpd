@@ -6,7 +6,7 @@ import requests
 from bs4 import BeautifulSoup
 from bencoder import bencode, bdecode
 from feedparser import parse as feed_parse
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit, urlparse
 
 
 def rss_parser(rss_url, ids):
@@ -39,6 +39,13 @@ def extract_base_url(url):
     split_url = urlsplit(url)
     base_url = urlunsplit((split_url.scheme, split_url.netloc, '', '', ''))
     return str(base_url)
+
+
+def add_subdomain(url, subdomain):
+    scheme = urlparse(url).scheme
+    netloc = urlparse(url).netloc
+    url_sub = urlunsplit((scheme, f'{subdomain}.{netloc}', '', '', ''))
+    return url_sub
 
 
 class Tracker:
@@ -153,3 +160,38 @@ class TeamHD(Tracker):
         response = requests.get(self.download_url)
         torrent = response.content
         return torrent
+
+
+class Kinozal(Tracker):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.post_params['username'] = self.auth['username'].encode('Windows-1251')
+        self.post_params['password'] = self.auth['password']
+        del self.post_params['login']
+        self.base_url = self.auth['url']
+        self.login_url = urljoin(self.base_url, 'takelogin.php')
+        self.topic_url = urljoin(self.base_url, f'details.php?id={self.topic_id}')
+        self.download_url = urljoin(
+            add_subdomain(self.base_url, 'dl'), f'download.php?id={self.topic_id}'
+        )
+        self.fingerprint = self.get_actual_weight()
+
+    def download_torrent(self):
+        if not self.session:
+            self.create_session()
+        torrent = self.session.get(self.download_url).content
+        return torrent
+
+    def get_actual_weight(self):
+        response = requests.get(self.topic_url)
+        topic = BeautifulSoup(response.text, features='html.parser')
+        try:
+            weight_field = topic.find('span', {'class': 'floatright green n'}).get_text()
+        except AttributeError:
+            weight = ''
+        else:
+            pattern = r'^[\s\./d\w]*\(([\d\,]*)\)$'
+            weight = re.match(pattern, weight_field).group(1)
+            weight = weight.replace(',', '')
+        return weight

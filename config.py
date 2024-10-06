@@ -61,6 +61,11 @@ class Conf:
                 'url': self.read_config('TeamHD', 'url'),
                 'passkey': self.read_config('TeamHD', 'passkey'),
             },
+            'kinozal': {
+                'url': self.read_config('Kinozal', 'url'),
+                'username': self.read_config('Kinozal', 'username'),
+                'password': self.read_config('Kinozal', 'password'),
+            },
             'qbittorrent': {
                 'host': self.read_config('qBittorrent', 'host'),
                 'username': self.read_config('qBittorrent', 'username'),
@@ -113,6 +118,10 @@ class Conf:
         self.config.add_section('TeamHD')
         self.config.set('TeamHD', 'url', 'https://teamhd.org')
         self.config.set('TeamHD', 'passkey', '1a2b3c4d5e6f7g8h9i0j10k11l12m13n')
+        self.config.add_section('Kinozal')
+        self.config.set('Kinozal', 'url', 'https://kinozal.tv')
+        self.config.set('Kinozal', 'username', 'KTVUsername')
+        self.config.set('Kinozal', 'password', 'KTVPassword')
         self.config.add_section('qBittorrent')
         self.config.set('qBittorrent', 'host', 'qBtHostURL:port')
         self.config.set('qBittorrent', 'username', 'qBtUsername')
@@ -125,13 +134,13 @@ class Conf:
         self.config.set('Transmission', 'password', 'TMPassword')
         self.config.add_section('Settings')
         self.config.set('Settings', 'client', 'qBittorrent')
-        self.config.set('Settings', 'source', 'file')
+        self.config.set('Settings', 'source', 'client')
         with open(self.config_file, 'w') as file:
             self.config.write(file)
         raise FileNotFoundError(f'Required to fill data in config: {self.config_file}')
 
     def create_update_file(self):
-        update_info = '[RuTracker]\n\n[NNMClub]\n\n[TeamHD]\n'
+        update_info = '[RuTracker]\n\n[NNMClub]\n\n[TeamHD]\n\n[Kinozal]\n'
         with open(self.update_file, 'w') as file:
             file.write(update_info)
         raise FileNotFoundError(f'Required to fill list of topics id in: {self.update_file}')
@@ -145,6 +154,7 @@ class Conf:
             'rutracker': [],
             'nnmclub': [],
             'teamhd': [],
+            'kinozal': [],
         }
         if self.source == 'file':
             tracker_ids = get_ids_from_file(self.update_file, tracker_ids)

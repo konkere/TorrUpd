@@ -6,7 +6,7 @@ import requests
 from config import Conf
 from bencoder import bdecode
 from urllib.parse import urljoin
-from tracker import RuTracker, NNMClub, TeamHD, rss_parser
+from tracker import RuTracker, NNMClub, TeamHD, Kinozal, rss_parser
 
 
 def main():
@@ -16,15 +16,23 @@ def main():
         'rutracker': {
             'incarnation': RuTracker,
             'fingerprint': 'hash',
+            'dl_from': 'topic',
         },
         'nnmclub': {
             'incarnation': NNMClub,
             'fingerprint': 'hash',
+            'dl_from': 'topic',
         },
         'teamhd': {
             'incarnation': TeamHD,
             'fingerprint': 'size',
-            'rssjoin': 'rss.php?feed=dl&passkey='
+            'rssjoin': 'rss.php?feed=dl&passkey=',
+            'dl_from': 'feed',
+        },
+        'kinozal': {
+            'incarnation': Kinozal,
+            'fingerprint': 'size',
+            'dl_from': 'topic',
         },
     }
     logging.basicConfig(
@@ -35,8 +43,8 @@ def main():
     )
     for tracker in config.tracker_ids.keys():
         sessions[tracker] = None
-        if trackers[tracker]['fingerprint'] == 'size' and config.tracker_ids[tracker]:
-            rss_url = urljoin(config.auth[tracker]["url"], trackers[tracker]["rssjoin"])
+        if trackers[tracker]['dl_from'] == 'feed' and config.tracker_ids[tracker]:
+            rss_url = urljoin(config.auth[tracker]['url'], trackers[tracker]['rssjoin'])
             rss_url = f'{rss_url}{config.auth[tracker]["passkey"]}'
             config.tracker_ids[tracker] = rss_parser(rss_url, config.tracker_ids[tracker])
     for tracker in config.tracker_ids.keys():
