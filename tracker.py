@@ -184,14 +184,18 @@ class Kinozal(Tracker):
         return torrent
 
     def get_actual_weight(self):
-        response = requests.get(self.topic_url)
-        topic = BeautifulSoup(response.text, features='html.parser')
-        try:
-            weight_field = topic.find('span', {'class': 'floatright green n'}).get_text()
-        except AttributeError:
-            weight = ''
-        else:
-            pattern = r'^[\s\./d\w]*\(([\d\,]*)\)$'
-            weight = re.match(pattern, weight_field).group(1)
-            weight = weight.replace(',', '')
+        weight = ''
+        for _ in range(5):
+            response = requests.get(self.topic_url)
+            topic = BeautifulSoup(response.text, features='html.parser')
+            try:
+                weight_field = topic.find('span', {'class': 'floatright green n'}).get_text()
+            except AttributeError:
+                pass
+            else:
+                pattern = r'^[\s\./d\w]*\(([\d\,]*)\)$'
+                weight = re.match(pattern, weight_field).group(1)
+                weight = weight.replace(',', '')
+            if weight:
+                break
         return weight

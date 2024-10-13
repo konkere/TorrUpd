@@ -4,7 +4,7 @@
 import re
 from client import QBT, TM
 from os import path, getenv, mkdir
-from configparser import ConfigParser
+from configparser import ConfigParser, NoOptionError, NoSectionError
 
 
 def get_ids_from_file(update_file, tracker_ids):
@@ -146,7 +146,10 @@ class Conf:
         raise FileNotFoundError(f'Required to fill list of topics id in: {self.update_file}')
 
     def read_config(self, section, setting):
-        value = self.config.get(section, setting)
+        try:
+            value = self.config.get(section, setting)
+        except (NoSectionError, NoOptionError):
+            value = ''
         return value
 
     def get_ids(self):
