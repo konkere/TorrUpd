@@ -134,17 +134,23 @@ class NNMClub(Tracker):
         self.fingerprint = self.get_actual_hash()
 
     def download_torrent(self):
-        if not self.session:
+        if self.auth['cookie']:
+            response = requests.get(self.topic_url, cookies={'cookie': self.auth['cookie']})
+            self.get_download_url(response)
+            torrent = requests.get(self.download_url, cookies={'cookie': self.auth['cookie']}).content
+        elif not self.session:
             self.create_session()
-        self.download_url = urljoin(self.base_url, self.get_download_href())
-        torrent = self.session.get(self.download_url).content
+            response = self.session.get(self.topic_url)
+            self.get_download_url(response)
+            torrent = self.session.get(self.download_url).content
+        else:
+            torrent = None
         return torrent
 
-    def get_download_href(self):
-        response = self.session.get(self.topic_url)
+    def get_download_url(self, response):
         topic = BeautifulSoup(response.text, features='html.parser')
         href = topic.find(lambda tag: tag.name == 'a' and 'Скачать' in tag.text).get('href')
-        return href
+        self.download_url = urljoin(self.base_url, href)
 
 
 class TeamHD(Tracker):

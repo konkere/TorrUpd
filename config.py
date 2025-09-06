@@ -41,7 +41,7 @@ class Conf:
         self.config_file = path.join(self.work_dir, 'settings.conf')
         self.update_file = path.join(self.work_dir, 'update.list')
         self.log_file = path.join(self.work_dir, 'torrent_updater.log')
-        self.config = ConfigParser()
+        self.config = ConfigParser(interpolation=None)
         self.exist()
         self.config.read(self.config_file)
         self.source = self.read_config('Settings', 'source')
@@ -54,6 +54,7 @@ class Conf:
             },
             'nnmclub': {
                 'url': self.read_config('NNMClub', 'url'),
+                'cookie': self.read_config('NNMClub', 'cookie'),
                 'username': self.read_config('NNMClub', 'username'),
                 'password': self.read_config('NNMClub', 'password'),
             },
@@ -113,6 +114,7 @@ class Conf:
         self.config.set('RuTracker', 'announcekey', '1a2b3c4d5e6f7g8h9i0j10k11l12m13n')
         self.config.add_section('NNMClub')
         self.config.set('NNMClub', 'url', 'https://nnmclub.to')
+        self.config.set('NNMClub', 'cookie', '')
         self.config.set('NNMClub', 'username', 'NNMUsername')
         self.config.set('NNMClub', 'password', 'NNMPassword')
         self.config.add_section('TeamHD')
