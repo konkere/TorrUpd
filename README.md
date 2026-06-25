@@ -32,9 +32,12 @@ python torrent_updater.py
 ```shell
 docker run -d --rm \
             --name=torrupd \
+            -e TZ=Europe/Moscow \
             -v /PATH/TO/HOST/DIR:/config \
             ghcr.io/konkere/torrupd:latest
 ```
+
+Set ``-e TZ=`` to your own timezone (e.g. ``Europe/Berlin``). Without it the container runs in UTC.
 
 #### After first run:
 
@@ -61,7 +64,7 @@ Topic IDs under the matching tracker sections, one ID per line (a comment may be
 
 #### Logs:
 
-Each run writes a log to ``torrent_updater.log`` in the config directory (``$HOME/.config/TorrUpd/`` or ``/PATH/TO/HOST/DIR`` for Docker) and to stdout, so for the Docker container the same output is available via ``docker logs torrupd``. The log covers what was checked, what was updated, and any tracker or client errors.
+Each run writes a log to ``torrent_updater.log`` in the config directory (``$HOME/.config/TorrUpd/`` or ``/PATH/TO/HOST/DIR`` for Docker) and to stdout, so for the Docker container the same output is available via ``docker logs torrupd``. The log covers what was checked, what was updated, and any tracker or client errors. Timestamps follow the system timezone (for Docker, set it via ``-e TZ=``, otherwise UTC is used).
 
 ## License
 
