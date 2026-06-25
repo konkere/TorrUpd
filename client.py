@@ -17,6 +17,7 @@ def extract_topics(pattern, comments):
             topic_id = re_comment.group(2)
         except AttributeError:
             continue
+        tracker_name = tracker_name.replace('-', '')
         try:
             topics[tracker_name].append(topic_id)
         except KeyError:
@@ -70,7 +71,7 @@ class QBT(TorrentClient):
     def get_torrent_by_topic(self, tracker, topic_id):
         torrents = self.client.torrents_info()
         for torrent in torrents:
-            comment = torrent.properties['comment']
+            comment = torrent.properties['comment'].replace('-', '')
             if isinstance(topic_id, dict) and tracker in comment and topic_id['topic_id'] in comment:
                 return torrent
             elif isinstance(topic_id, str) and tracker in comment and topic_id in comment:
@@ -141,7 +142,7 @@ class TM(TorrentClient):
     def get_torrent_by_topic(self, tracker, topic_id):
         torrents = self.client.get_torrents()
         for torrent_tm in torrents:
-            comment = torrent_tm.comment
+            comment = torrent_tm.comment.replace('-', '')
             torrent = torrent_tm.fields
             torrent['hash'] = torrent['hashString']
             torrent['category'] = None
