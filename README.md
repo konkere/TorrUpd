@@ -1,11 +1,17 @@
 ![Torrent updater](/.github/img/TorrUpd.jpg)
-Tool for automatically checking the relevance of torrents and updating them in the torrent client.
 
-Supports trackers: RuTracker and NNM-Club (hash comparison in topics), Kinozal (torrent size comparison in topics) and TeamHD (torrent size comparison in RSS, login problem due to reCaptcha).
+Tool for automatically keeping seeded torrents up to date. When a topic on a tracker gets a newer version of a release (a new episode, a better quality, a re-upload), TorrUpd detects the change and replaces the torrent in your client — so you keep seeding the current version without checking trackers by hand.
 
-Supports clients: qBittorrent, Transmission.
+It runs once per launch: start it, it does its job and exits. Scheduling is up to you (cron, a systemd timer, a Docker container started on a timer — whatever fits).
+
+Supported trackers: RuTracker and NNM-Club (compared by topic hash), Kinozal (compared by torrent size in topics), TeamHD (compared by torrent size in RSS).
+
+Supported clients: qBittorrent, Transmission.
+
+> **Note on TeamHD:** login may fail due to reCaptcha on the tracker side. TeamHD is also checked via its RSS feed, which only lists recent releases — older tracked topics are picked up again once they reappear in the feed (e.g. when re-uploaded).
 
 #### Host/venv run:
+
 **Python 3.10** required.
 
 ```shell
@@ -15,13 +21,14 @@ python -m venv venv
 source ./venv/bin/activate
 pip install -r requirements.txt
 python torrent_updater.py
-````
+```
 
 ``torrent_updater.py`` — main script.
 
 ``config.py``, ``client.py``, ``tracker.py`` — related modules.
 
 #### Run in Docker:
+
 ```shell
 docker run -d --rm \
             --name=torrupd \
@@ -30,24 +37,32 @@ docker run -d --rm \
 ```
 
 #### After first run:
-Fill data in files in ``$HOME/.config/TorrUpd/`` (or ``/PATH/TO/HOST/DIR`` for Docker) directory:
 
-1. ``settings.conf``:
+The first run creates config files in ``$HOME/.config/TorrUpd/`` (or ``/PATH/TO/HOST/DIR`` for Docker). Fill them in, then run again.
 
-1.1. ``username`` and ``password`` in tracker sections.
+**1. ``settings.conf``**
 
-1.2. ``announcekey`` in section ``[RuTracker]`` (optional, crutch for fix broken announcers).
+Minimum to get started:
 
-1.3. ``passkey`` in section ``[TeamHD]``
+- ``username`` and ``password`` in the tracker sections you use.
+- ``host``, ``username`` and ``password`` in the client section (for Transmission also set ``protocol`` and ``port``).
+- in ``[Settings]``: ``client`` name, and ``source`` for IDs — ``client`` to check all torrents in the client, ``file`` to check only the list from ``update.list``.
 
-1.4. ``cookie`` in section ``[NNMClub]`` (optional, [instructions for obtaining a cookie](README_get_cookie.md)).
+Optional:
 
-1.5. ``url`` in tracker sections (optional, if the tracker url changes or to use a mirror).
+- ``announcekey`` in ``[RuTracker]`` — workaround for broken announcers.
+- ``passkey`` in ``[TeamHD]``.
+- ``cookie`` in ``[NNMClub]`` — see [instructions for obtaining a cookie](README_get_cookie.md).
+- ``url`` in tracker sections — if a tracker URL changes or you want to use a mirror.
 
-1.6. ``host``, ``username`` and ``password`` in client section (fill out separately for Transmission: ``protocol`` and ``port``).
+**2. ``update.list``**
 
-1.7. in section ``[Settings]`` set ``client`` name and ``source`` for IDs (``client`` for check all torrents, ``file`` for limited checking list from file)
+Topic IDs under the matching tracker sections, one ID per line (a comment may be added). Only needed when ``source`` is set to ``file``.
 
-2. ``update.list``:
+#### Logs:
 
-2.1. ID of topics in the tracker sections (you can add a comment). One line — one topic ID.
+Each run writes a log to ``torrent_updater.log`` in the config directory (``$HOME/.config/TorrUpd/`` or ``/PATH/TO/HOST/DIR`` for Docker) and to stdout, so for the Docker container the same output is available via ``docker logs torrupd``. The log covers what was checked, what was updated, and any tracker or client errors.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

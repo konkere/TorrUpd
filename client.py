@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import re
+import logging
 from qbittorrentapi import Client as QBT_Client
 from transmission_rpc import Client as TM_Client
 from qbittorrentapi.torrents import TorrentDictionary
@@ -85,15 +86,28 @@ class QBT(TorrentClient):
         self.client.torrents_delete(delete_files=False, torrent_hashes=torrent_hash)
 
     def add_torrent(self, torrent, data):
-        self.client.torrents_add(
-            torrent_files=torrent,
-            category=data['category'],
-            tags=data['tags'],
-            save_path=data['path'],
-        )
+        try:
+            self.client.torrents_add(
+                torrent_files=torrent,
+                category=data['category'],
+                tags=data['tags'],
+                save_path=data['path'],
+            )
+        except Exception as exc:
+            logging.error(
+                f'[{data["tracker"]}] topic {data["topic_id"]}: failed to add torrent '
+                f'to qBittorrent ({data["path"]}): {exc}'
+            )
+            return
         if data['state'] == self.force_state:
-            torrent_hash = self.get_torrent_by_topic(data['tracker'], data['topic_id'])['hash']
-            self.client.torrents.set_force_start(torrent_hashes=torrent_hash)
+            found = self.get_torrent_by_topic(data['tracker'], data['topic_id'])
+            if found is None:
+                logging.warning(
+                    f'[{data["tracker"]}] topic {data["topic_id"]}: added torrent not found '
+                    f'right after adding, cannot restore force-start state'
+                )
+                return
+            self.client.torrents.set_force_start(torrent_hashes=found['hash'])
 
     def all_topics(self):
         pattern = r'^https?://([A-z-]*)\..*[d=](\d*)$'
@@ -149,10 +163,15 @@ class TM(TorrentClient):
         self.client.remove_torrent(delete_data=False, ids=torrent_hash)
 
     def add_torrent(self, torrent, data):
-        self.client.add_torrent(
-            torrent=torrent,
-            download_dir=data['path'],
-        )
+        try:
+            self.client.add_torrent(
+                torrent=torrent,
+                download_dir=data['path'],
+            )
+        except Exception as exc:
+            logging.error(
+                f'[transmission] failed to add torrent to {data["path"]}: {exc}'
+            )
 
     def all_topics(self):
         pattern = r'^https?://([A-z-]*)\..*[d=](\d*)$'

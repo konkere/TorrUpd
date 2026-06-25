@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import re
+import logging
 import requests
 from bs4 import BeautifulSoup
 from bencoder import bencode, bdecode
@@ -18,11 +19,20 @@ def rss_parser(rss_url, ids):
     }
     result_entries = {guid: null_entry_data for guid in ids}
     guid_pattern = r'\/(\d*)$'
-    feed = feed_parse(rss_url)
-    if feed.status == 200:
+    try:
+        feed = feed_parse(rss_url)
+    except Exception as exc:
+        logging.error(f'[teamhd] RSS fetch/parse failed: {exc}')
+        return list(result_entries.values())
+    feed_status = getattr(feed, 'status', None)
+    if feed_status == 200:
         entries = reversed(feed['entries'])
         for entry in entries:
-            entry_id = re.search(guid_pattern, entry['id']).group(1)
+            try:
+                entry_id = re.search(guid_pattern, entry['id']).group(1)
+            except (AttributeError, KeyError):
+                logging.warning('[teamhd] RSS entry without a parsable id, skipped')
+                continue
             if entry_id in ids:
                 entry_data = {
                     'topic_id': entry_id,
@@ -31,6 +41,8 @@ def rss_parser(rss_url, ids):
                     'name': entry['title']
                 }
                 result_entries[entry_id] = entry_data
+    else:
+        logging.warning(f'[teamhd] RSS returned status {feed_status} (expected 200)')
     new_ids = list(result_entries.values())
     return new_ids
 
@@ -63,18 +75,26 @@ class Tracker:
         self.hash_pattern = r'urn:btih:([A-z0-9]*)'
 
     def get_actual_hash(self):
-        response = requests.get(self.topic_url)
+        try:
+            response = requests.get(self.topic_url, timeout=30)
+        except requests.RequestException as exc:
+            logging.error(f'failed to fetch topic page {self.topic_url}: {exc}')
+            return ''
         topic = BeautifulSoup(response.text, features='html.parser')
         try:
             magnet = topic.find('a', self.magnet_find).get('href')
             torrent_hash = re.search(self.hash_pattern, magnet).group(1)
         except AttributeError:
+            logging.debug(f'magnet link / hash not found on {self.topic_url}')
             torrent_hash = ''
         return torrent_hash
 
     def create_session(self):
         self.session = requests.Session()
-        self.session.post(self.login_url, data=self.post_params)
+        try:
+            self.session.post(self.login_url, data=self.post_params, timeout=30)
+        except requests.RequestException as exc:
+            logging.error(f'login request to {self.login_url} failed: {exc}')
 
     def download_torrent(self):
         pass
@@ -109,7 +129,7 @@ class RuTracker(Tracker):
             try:
                 announcers = torrent_decode[b'announce-list']
             except KeyError:
-                pass
+                logging.info('[rutracker] torrent has no announce-list, patched primary announce only')
             else:
                 for ann_id, ann in enumerate(announcers):
                     if bytes('.t-ru.org', 'UTF-8') in ann[0]:
@@ -135,13 +155,19 @@ class NNMClub(Tracker):
 
     def download_torrent(self):
         if self.auth['cookie']:
-            response = requests.get(self.topic_url, cookies={'cookie': self.auth['cookie']})
+            response = requests.get(self.topic_url, cookies={'cookie': self.auth['cookie']}, timeout=30)
             self.get_download_url(response)
-            torrent = requests.get(self.download_url, cookies={'cookie': self.auth['cookie']}).content
+            if not self.download_url:
+                return None
+            torrent = requests.get(
+                self.download_url, cookies={'cookie': self.auth['cookie']}, timeout=30
+            ).content
         elif not self.session:
             self.create_session()
             response = self.session.get(self.topic_url)
             self.get_download_url(response)
+            if not self.download_url:
+                return None
             torrent = self.session.get(self.download_url).content
         else:
             torrent = None
@@ -149,7 +175,15 @@ class NNMClub(Tracker):
 
     def get_download_url(self, response):
         topic = BeautifulSoup(response.text, features='html.parser')
-        href = topic.find(lambda tag: tag.name == 'a' and 'Скачать' in tag.text).get('href')
+        try:
+            href = topic.find(lambda tag: tag.name == 'a' and 'Скачать' in tag.text).get('href')
+        except AttributeError:
+            logging.warning(
+                f'[nnmclub] download link not found on {self.topic_url} '
+                f'(not logged in or cookie expired?)'
+            )
+            self.download_url = ''
+            return
         self.download_url = urljoin(self.base_url, href)
 
 
@@ -163,7 +197,11 @@ class TeamHD(Tracker):
         self.topic_url = urljoin(self.base_url, f'details/id{self.topic_id["topic_id"]}')
 
     def download_torrent(self):
-        response = requests.get(self.download_url)
+        try:
+            response = requests.get(self.download_url, timeout=30)
+        except requests.RequestException as exc:
+            logging.error(f'[teamhd] download failed for {self.download_url}: {exc}')
+            return None
         torrent = response.content
         return torrent
 
@@ -191,17 +229,29 @@ class Kinozal(Tracker):
 
     def get_actual_weight(self):
         weight = ''
-        for _ in range(5):
-            response = requests.get(self.topic_url)
+        for attempt in range(5):
+            try:
+                response = requests.get(self.topic_url, timeout=30)
+            except requests.RequestException as exc:
+                logging.error(
+                    f'[kinozal] failed to fetch {self.topic_url} '
+                    f'(attempt {attempt + 1}/5): {exc}'
+                )
+                continue
             topic = BeautifulSoup(response.text, features='html.parser')
             try:
                 weight_field = topic.find('span', {'class': 'floatright green n'}).get_text()
             except AttributeError:
-                pass
+                logging.warning(
+                    f'[kinozal] size field not found on {self.topic_url} '
+                    f'(attempt {attempt + 1}/5, not logged in or layout changed?)'
+                )
             else:
                 pattern = r'^[\s\./d\w]*\(([\d\,]*)\)$'
                 weight = re.match(pattern, weight_field).group(1)
                 weight = weight.replace(',', '')
             if weight:
                 break
+        if not weight:
+            logging.error(f'[kinozal] could not read size from {self.topic_url} after 5 attempts')
         return weight
