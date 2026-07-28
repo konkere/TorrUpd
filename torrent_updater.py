@@ -6,7 +6,7 @@ import requests
 from config import Conf
 from bencoder import bdecode, BTFailure
 from urllib.parse import urljoin
-from tracker import RuTracker, NNMClub, TeamHD, Kinozal, rss_parser
+from tracker import RuTracker, NNMClub, TeamHD, Kinozal, rss_parser, resolve_tracker_access
 
 
 def setup_logging(log_file):
@@ -61,39 +61,57 @@ def run_through_tracker(config, sessions, tracker, trackers):
             topic_id=topic_id,
             session=sessions[tracker]
         )
+        # Reuse the login session across topics: creating the tracker may have
+        # logged in (e.g. Kinozal reads topic pages authenticated), and logging
+        # in once per topic would hammer the tracker's login form.
+        if not sessions[tracker] and fresh_tracker.session:
+            sessions[tracker] = fresh_tracker.session
         if not fresh_tracker.fingerprint:
             logging.warning(
-                f'[{tracker}] topic {topic_id}: no fingerprint on tracker '
+                f'[{tracker}] topic {fresh_tracker.display_id}: no fingerprint on tracker '
                 f'(topic removed/closed, or login/layout issue), skipped'
             )
             continue
         current_fingerprint = str(current_torrent[trackers[tracker]['fingerprint']]).lower()
         if current_fingerprint == fresh_tracker.fingerprint.lower():
-            logging.info(f'[{tracker}] topic {topic_id}: up to date')
+            logging.info(f'[{tracker}] topic {fresh_tracker.display_id}: up to date')
             continue
         logging.info(
-            f'[{tracker}] topic {topic_id}: change detected '
+            f'[{tracker}] topic {fresh_tracker.display_id}: change detected '
             f'({trackers[tracker]["fingerprint"]} differs), updating "{current_torrent["name"]}"'
         )
-        new_torrent_name, new_torrent = get_torrent(fresh_tracker, tracker, topic_id)
+        new_torrent_name, new_torrent = get_torrent(fresh_tracker, tracker, fresh_tracker.display_id)
         if new_torrent_name and new_torrent:
-            if not sessions[tracker] and fresh_tracker.session:
-                sessions[tracker] = fresh_tracker.session
+            if config.dry_run:
+                logging.info(
+                    f'[{tracker}] topic {fresh_tracker.display_id}: DRY RUN — would remove '
+                    f'"{current_torrent["name"]}" (hash {current_torrent["hash"]}) and add new '
+                    f'torrent "{new_torrent_name}" at {current_torrent["save_path"]}; '
+                    f'no changes made in the torrent client'
+                )
+                if new_torrent_name != current_torrent['name']:
+                    logging.warning(
+                        f'[{tracker}] topic {fresh_tracker.display_id}: DRY RUN — torrent name would change '
+                        f'"{current_torrent["name"]}" -> "{new_torrent_name}"'
+                    )
+                continue
             data = {
                 'category': current_torrent['category'],
                 'tags': current_torrent['tags'],
                 'path': current_torrent['save_path'],
                 'state': current_torrent['state'],
                 'tracker': tracker,
-                'topic_id': topic_id,
+                'topic_id': topic_id,  # raw internal id — must match what topic_url is built from
             }
             config.client.remove_torrent(current_torrent['hash'])
             logging.info(
-                f'[{tracker}] topic {topic_id}: removed old torrent from client, '
+                f'[{tracker}] topic {fresh_tracker.display_id}: removed old torrent from client, '
                 f'adding new one at {current_torrent["save_path"]}'
             )
             config.client.add_torrent(torrent=new_torrent, data=data)
-            logging.info(f'[{tracker}] topic {topic_id}: updated successfully — "{new_torrent_name}"')
+            logging.info(
+                f'[{tracker}] topic {fresh_tracker.display_id}: updated successfully — "{new_torrent_name}"'
+            )
             if new_torrent_name != current_torrent['name']:
                 logging.warning(
                     f'[{tracker}] topic {topic_id}: torrent name changed '
@@ -152,26 +170,37 @@ def main():
         if not config.tracker_ids[tracker]:
             logging.info(f'[{tracker}] no topics configured, skipped')
             continue
-        reachable = False
-        for attempt in range(5):
-            try:
-                response = requests.get(config.auth[tracker]['url'], timeout=30)
-            except requests.RequestException as exc:
-                logging.error(f'[{tracker}] request failed (attempt {attempt + 1}/5): {exc}')
-                continue
-            if response.status_code == 200:
-                logging.info(
-                    f'[{tracker}] reachable, checking {len(config.tracker_ids[tracker])} topic(s)'
+        tracker_class = trackers[tracker]['incarnation']
+        if hasattr(tracker_class, 'login_url_and_params'):
+            # Cloudflare-aware path: ping first, log in through FlareSolverr
+            # only if actually blocked. See resolve_tracker_access docstring.
+            reachable, refreshed = resolve_tracker_access(tracker, config.auth[tracker], tracker_class)
+            if refreshed:
+                config.persist_cookie(
+                    tracker, config.auth[tracker]['cookie'], config.auth[tracker]['useragent']
                 )
-                run_through_tracker(config, sessions, tracker, trackers)
-                reachable = True
-                break
-            else:
-                logging.warning(
-                    f'[{tracker}] HTTP {response.status_code} (attempt {attempt + 1}/5)'
-                )
-        if not reachable:
-            logging.error(f'[{tracker}] unreachable after 5 attempts, skipped')
+        else:
+            reachable = False
+            for attempt in range(5):
+                try:
+                    response = requests.get(config.auth[tracker]['url'], timeout=30)
+                except requests.RequestException as exc:
+                    logging.error(f'[{tracker}] request failed (attempt {attempt + 1}/5): {exc}')
+                    continue
+                if response.status_code == 200:
+                    reachable = True
+                    break
+                else:
+                    logging.warning(
+                        f'[{tracker}] HTTP {response.status_code} (attempt {attempt + 1}/5)'
+                    )
+        if reachable:
+            logging.info(
+                f'[{tracker}] reachable, checking {len(config.tracker_ids[tracker])} topic(s)'
+            )
+            run_through_tracker(config, sessions, tracker, trackers)
+        else:
+            logging.error(f'[{tracker}] unreachable, skipped')
 
     logging.info('TorrUpd run finished')
 

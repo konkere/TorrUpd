@@ -39,6 +39,28 @@ docker run -d --rm \
 
 Set ``-e TZ=`` to your own timezone (e.g. ``Europe/Berlin``). Without it the container runs in UTC.
 
+#### Run with Docker Compose (TorrUpd + FlareSolverr):
+
+To let TorrUpd solve Cloudflare challenges on its own (see [below](#cloudflare-and-flaresolverr)), run it alongside FlareSolverr on a shared network. Grab [`docker-compose.yml`](docker-compose.yml), set ``/PATH/TO/HOST/DIR`` and ``TZ`` in it, then:
+
+```shell
+docker compose run --rm torrupd; docker compose down
+```
+
+Step by step: FlareSolverr is started, TorrUpd waits until it actually accepts requests (the compose file declares a healthcheck for it), runs once, and its container is removed; then ``down`` stops the solver and removes the network. Nothing is left behind between runs — a fresh solver every time avoids the leaks and stuck browser processes a long-lived headless Chromium tends to accumulate. Note the ``;`` rather than ``&&``: the solver is shut down even if the run fails.
+
+From cron, with a lock so that a long run is never torn down by the next one:
+
+```shell
+0 * * * * flock -n /tmp/torrupd.lock -c 'cd /path/to/compose/dir && docker compose run --rm torrupd; docker compose down'
+```
+
+If you run TorrUpd often (every few minutes), consider keeping the solver up instead — drop the ``docker compose down`` and it stays in the background, saving a few seconds of startup per run.
+
+Note that ``docker compose up`` is not a good fit here: it is meant for long-living services and would leave the finished TorrUpd container behind in an ``Exited`` state.
+
+With this setup put ``url = http://flaresolverr:8191/v1`` in the ``[FlareSolverr]`` section of ``settings.conf`` — inside the compose network the solver is reachable by its service name.
+
 #### After first run:
 
 The first run creates config files in ``$HOME/.config/TorrUpd/`` (or ``/PATH/TO/HOST/DIR`` for Docker). Fill them in, then run again.
@@ -55,16 +77,68 @@ Optional:
 
 - ``announcekey`` in ``[RuTracker]`` — workaround for broken announcers.
 - ``passkey`` in ``[TeamHD]``.
-- ``cookie`` in ``[NNMClub]`` — see [instructions for obtaining a cookie](README_get_cookie.md).
+- ``cookie`` and ``useragent`` in ``[RuTracker]`` and ``[NNMClub]`` — see [instructions for obtaining them](README_get_cookie.md).
+- ``url`` in ``[FlareSolverr]`` — see [Cloudflare and FlareSolverr](#cloudflare-and-flaresolverr).
+- ``dry_run`` in ``[Settings]`` — see [Dry run](#dry-run).
 - ``url`` in tracker sections — if a tracker URL changes or you want to use a mirror.
 
 **2. ``update.list``**
 
 Topic IDs under the matching tracker sections, one ID per line (a comment may be added). Only needed when ``source`` is set to ``file``.
 
+#### Cloudflare and FlareSolverr:
+
+RuTracker and NNM-Club are behind Cloudflare. TorrUpd impersonates a real browser's TLS fingerprint, which alone is not enough — Cloudflare also issues a clearance cookie that has to be obtained by a browser.
+
+There are two ways to supply it, and they work together:
+
+**1. A cookie from your browser (recommended).** Copy ``cookie`` and ``useragent`` into the tracker's section as described in [README_get_cookie.md](README_get_cookie.md). This covers both the Cloudflare clearance and the tracker login in one go, and typically keeps working for months.
+
+**2. FlareSolverr (optional, automates the rest).** Set ``url`` in the ``[FlareSolverr]`` section, e.g.:
+
+```ini
+[FlareSolverr]
+url = http://flaresolverr:8191/v1
+```
+
+TorrUpd then uses it in two situations:
+
+- If a tracker answers with HTTP 403 at the start of a run, TorrUpd asks FlareSolverr to log in through it and stores the resulting cookie back into ``settings.conf``.
+- If Cloudflare raises a challenge in the middle of a run, TorrUpd asks FlareSolverr to solve it for that exact URL and merges the fresh clearance into the cookie it already has, keeping the existing login session intact.
+
+> **Note:** FlareSolverr cannot solve image CAPTCHAs. If a tracker shows one on its login form (RuTracker does), the automatic login will not go through — that case still needs a cookie copied from your browser. Challenge solving mid-run works regardless, since it needs no login.
+
+Without a configured FlareSolverr, TorrUpd simply relies on the cookie from ``settings.conf`` and skips a tracker if Cloudflare blocks it.
+
+#### Dry run:
+
+To see what TorrUpd would do without touching your client, set in ``[Settings]``:
+
+```ini
+dry_run = true
+```
+
+Trackers are still checked and torrent files are still downloaded, but nothing is removed from or added to the client — every change is only reported in the log:
+
+```
+[rutracker] topic 4742818: DRY RUN — would remove "..." (hash ...) and add new torrent "..." at /torrent/manga; no changes made in the torrent client
+```
+
+Handy after changing the configuration, or on the very first run against a large list of torrents.
+
 #### Logs:
 
 Each run writes a log to ``torrent_updater.log`` in the config directory (``$HOME/.config/TorrUpd/`` or ``/PATH/TO/HOST/DIR`` for Docker) and to stdout, so for the Docker container the same output is available via ``docker logs torrupd``. The log covers what was checked, what was updated, and any tracker or client errors. Timestamps follow the system timezone (for Docker, set it via ``-e TZ=``, otherwise UTC is used).
+
+Common messages:
+
+- ``topic <id>: up to date`` — nothing to do.
+- ``topic <id>: change detected (hash differs), updating "..."`` — a new version was found.
+- ``topic <id>: no fingerprint on tracker`` — the topic page could not be read: the topic is gone or closed, or the cookie/login has expired.
+- ``downloaded data is not a valid torrent`` — a page was returned instead of a torrent file, usually an expired cookie or a Cloudflare challenge.
+- ``[flaresolverr] login was not accepted`` — the automatic login hit a CAPTCHA; supply a cookie manually.
+
+For NNM-Club, topics are logged as ``<post id> (<topic id>)``: the first number is what TorrUpd works with (it comes from the torrent's comment field), the second is the human-facing topic number on the site.
 
 ## License
 

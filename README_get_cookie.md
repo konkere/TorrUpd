@@ -1,23 +1,63 @@
-1. Login to this tracker with your browser
+# Getting `cookie` and `useragent`
 
-2. If present in the login page, ensure you have the Remember me ticked and the Log Me Out if IP Changes unticked when you login
+RuTracker and NNM-Club sit behind Cloudflare, and both require a login to
+download torrent files. The most reliable way to give TorrUpd access is to
+copy a working session straight out of your browser.
 
-3. Navigate to the web site's torrent search page to view the list of available torrents for download
+You need **two** values, and they must come from the **same** browser:
+``cookie`` and ``useragent``. Cloudflare ties its clearance cookie to the
+User-Agent it was issued to — a valid cookie sent with a different (or
+missing) User-Agent is rejected, so copying only the cookie will not work.
 
-4. Open the DevTools panel by pressing F12
+## Steps
 
-5. Select the Network tab
+1. Login to the tracker with your browser.
 
-6. Click on the Doc button (Chrome Browser) or HTML button (FireFox)
+2. If present on the login page, ensure **Remember me** is ticked and
+   **Log Me Out if IP Changes** is unticked.
 
-7. Refresh the page by pressing F5
+3. Navigate to any page of the site while logged in (the forum index is fine).
 
-8. Click on the first row entry
+4. Open the DevTools panel by pressing <kbd>F12</kbd>.
 
-9. Select the Headers tab on the Right panel
+5. Select the **Network** tab.
 
-10. Find 'cookie:' in the Request Headers section
+6. Click on the **Doc** button (Chrome) or **HTML** button (Firefox).
 
-11. Select and Copy the whole cookie string (everything after 'cookie: ') and Paste it into parameter ``cookie`` section ``[NNMClub]`` in ``settings.conf`` file'.
+7. Refresh the page by pressing <kbd>F5</kbd>.
 
-Taken from [Jackett's Wiki](https://github.com/Jackett/Jackett/wiki/Troubleshooting#your-cookie-did-not-work).
+8. Click on the first row entry.
+
+9. Select the **Headers** tab on the right panel.
+
+10. In the **Request Headers** section, find ``cookie:`` — select and copy the
+    whole string (everything after ``cookie: ``) into the ``cookie`` parameter
+    of the matching tracker section in ``settings.conf``.
+
+11. In the same **Request Headers** section, find ``user-agent:`` — copy that
+    whole string into the ``useragent`` parameter of the same section.
+
+Both values go into the same section, e.g.:
+
+```ini
+[RuTracker]
+cookie = bb_guid=...; bb_ssl=1; bb_session=...; cf_clearance=...
+useragent = Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36
+```
+
+## Good to know
+
+- **The cookie is tied to your IP.** Copy it from a browser running on the
+  same public IP as TorrUpd. If TorrUpd runs on a server elsewhere, a cookie
+  taken from your desktop browser will most likely be rejected.
+
+- **It lasts a while.** Cloudflare's ``cf_clearance`` is often valid for
+  months, and the tracker's own session cookie (with *Remember me*) lasts
+  even longer — this is not something you have to refresh daily.
+
+- **When it expires** you will see topics logged as *no fingerprint on
+  tracker* or downloads failing as *not a valid torrent*. Repeat the steps
+  above to get a fresh pair. Configuring [FlareSolverr](README.md#cloudflare-and-flaresolverr)
+  lets TorrUpd handle most of these cases on its own.
+
+Steps adapted from [Jackett's Wiki](https://github.com/Jackett/Jackett/wiki/Troubleshooting#your-cookie-did-not-work).

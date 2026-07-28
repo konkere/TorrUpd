@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import re
+import logging
 from client import QBT, TM
 from os import path, getenv, mkdir
 from configparser import ConfigParser, NoOptionError, NoSectionError
@@ -36,6 +37,13 @@ def get_ids_from_client(client, tracker_ids):
 
 class Conf:
 
+    # Only trackers that support the Cloudflare-bypass-via-FlareSolverr flow
+    # (see tracker.resolve_tracker_access) need their cookie persisted back.
+    CF_BYPASS_SECTIONS = {
+        'rutracker': 'RuTracker',
+        'nnmclub': 'NNMClub',
+    }
+
     def __init__(self):
         self.work_dir = path.join(getenv('HOME'), '.config', 'TorrUpd')
         self.config_file = path.join(self.work_dir, 'settings.conf')
@@ -45,18 +53,24 @@ class Conf:
         self.exist()
         self.config.read(self.config_file)
         self.source = self.read_config('Settings', 'source')
+        self.dry_run = self.read_config('Settings', 'dry_run').strip().lower() in ('1', 'true', 'yes', 'on')
         self.auth = {
             'rutracker': {
                 'url': self.read_config('RuTracker', 'url'),
                 'username': self.read_config('RuTracker', 'username'),
                 'password': self.read_config('RuTracker', 'password'),
                 'announcekey': self.read_config('RuTracker', 'announcekey'),
+                'cookie': self.read_config('RuTracker', 'cookie'),
+                'useragent': self.read_config('RuTracker', 'useragent'),
+                'flaresolverr': self.read_config('FlareSolverr', 'url'),
             },
             'nnmclub': {
                 'url': self.read_config('NNMClub', 'url'),
                 'cookie': self.read_config('NNMClub', 'cookie'),
+                'useragent': self.read_config('NNMClub', 'useragent'),
                 'username': self.read_config('NNMClub', 'username'),
                 'password': self.read_config('NNMClub', 'password'),
+                'flaresolverr': self.read_config('FlareSolverr', 'url'),
             },
             'teamhd': {
                 'url': self.read_config('TeamHD', 'url'),
@@ -112,9 +126,12 @@ class Conf:
         self.config.set('RuTracker', 'username', 'TRUsername')
         self.config.set('RuTracker', 'password', 'TRPassword')
         self.config.set('RuTracker', 'announcekey', '1a2b3c4d5e6f7g8h9i0j10k11l12m13n')
+        self.config.set('RuTracker', 'cookie', '')
+        self.config.set('RuTracker', 'useragent', '')
         self.config.add_section('NNMClub')
         self.config.set('NNMClub', 'url', 'https://nnmclub.to')
         self.config.set('NNMClub', 'cookie', '')
+        self.config.set('NNMClub', 'useragent', '')
         self.config.set('NNMClub', 'username', 'NNMUsername')
         self.config.set('NNMClub', 'password', 'NNMPassword')
         self.config.add_section('TeamHD')
@@ -124,6 +141,8 @@ class Conf:
         self.config.set('Kinozal', 'url', 'https://kinozal.tv')
         self.config.set('Kinozal', 'username', 'KTVUsername')
         self.config.set('Kinozal', 'password', 'KTVPassword')
+        self.config.add_section('FlareSolverr')
+        self.config.set('FlareSolverr', 'url', '')
         self.config.add_section('qBittorrent')
         self.config.set('qBittorrent', 'host', 'qBtHostURL:port')
         self.config.set('qBittorrent', 'username', 'qBtUsername')
@@ -137,6 +156,7 @@ class Conf:
         self.config.add_section('Settings')
         self.config.set('Settings', 'client', 'qBittorrent')
         self.config.set('Settings', 'source', 'client')
+        self.config.set('Settings', 'dry_run', 'false')
         with open(self.config_file, 'w') as file:
             self.config.write(file)
         raise FileNotFoundError(f'Required to fill data in config: {self.config_file}')
@@ -153,6 +173,26 @@ class Conf:
         except (NoSectionError, NoOptionError):
             value = ''
         return value
+
+    def persist_cookie(self, tracker_name, cookie, useragent):
+        """
+        Write a freshly solved Cloudflare cookie back into settings.conf so
+        the next run picks it up via the normal read_config() path — no
+        separate cache file needed. Note: ConfigParser.write() regenerates
+        the whole file and does not preserve comments, so any manual
+        comments in settings.conf will be lost the first time this runs.
+        """
+        section = self.CF_BYPASS_SECTIONS.get(tracker_name)
+        if not section:
+            return
+        self.config.set(section, 'cookie', cookie or '')
+        self.config.set(section, 'useragent', useragent or '')
+        try:
+            with open(self.config_file, 'w') as file:
+                self.config.write(file)
+            logging.info(f'[{tracker_name}] refreshed Cloudflare cookie saved to {self.config_file}')
+        except OSError as exc:
+            logging.error(f'[{tracker_name}] failed to persist cookie to {self.config_file}: {exc}')
 
     def get_ids(self):
         tracker_ids = {

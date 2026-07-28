@@ -1,0 +1,58 @@
+services:
+
+  # Cloudflare challenge solver. Normally started and stopped around each
+  # TorrUpd run (see README), so every run gets a clean browser instead of
+  # one that has been up for weeks. Can also be left running if TorrUpd runs
+  # very often.
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    environment:
+      - LOG_LEVEL=info
+      - TZ=Europe/Moscow
+    networks:
+      - torrupd-net
+    # The image ships no healthcheck of its own; this one lets TorrUpd wait
+    # until the solver actually accepts requests instead of merely having a
+    # started container — its browser check takes a few seconds. The interval
+    # also sets how soon the first probe runs, i.e. how long each run waits
+    # when the solver is started from scratch. On Docker Engine 25+ you can
+    # add `start_interval: 2s` to probe even more often during startup.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8191/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+    # Not published to the host by default — TorrUpd reaches it over the
+    # shared network below as http://flaresolverr:8191/v1. Uncomment only to
+    # poke it with curl from the host while debugging.
+    # ports:
+    #   - "8191:8191"
+
+  # TorrUpd itself. Runs once and exits, so it is not restarted automatically:
+  # trigger it on your own schedule (see README).
+  # No container_name here on purpose — `docker compose run` generates its own
+  # name per invocation, and a fixed one would collide between runs.
+  torrupd:
+    image: ghcr.io/konkere/torrupd:latest
+    environment:
+      - TZ=Europe/Moscow
+    volumes:
+      - ~/.config/TorrUpd:/config
+    networks:
+      - torrupd-net
+    depends_on:
+      flaresolverr:
+        condition: service_healthy
+    restart: "no"
+
+# Shared network for both services: inside it each one is reachable by its
+# service name, so settings.conf can simply point at flaresolverr by name
+# instead of an IP address:
+#     [FlareSolverr]
+#     url = http://flaresolverr:8191/v1
+networks:
+  torrupd-net:
+    name: torrupd-net
