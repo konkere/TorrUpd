@@ -80,6 +80,7 @@ Optional:
 - ``cookie`` and ``useragent`` in ``[RuTracker]`` and ``[NNMClub]`` — see [instructions for obtaining them](README_get_cookie.md).
 - ``url`` in ``[FlareSolverr]`` — see [Cloudflare and FlareSolverr](#cloudflare-and-flaresolverr).
 - ``dry_run`` in ``[Settings]`` — see [Dry run](#dry-run).
+- ``skip_tags`` in ``[Settings]`` — see [Keeping a torrent as is](#keeping-a-torrent-as-is).
 - ``url`` in tracker sections — if a tracker URL changes or you want to use a mirror.
 
 **2. ``update.list``**
@@ -126,6 +127,20 @@ Trackers are still checked and torrent files are still downloaded, but nothing i
 
 Handy after changing the configuration, or on the very first run against a large list of torrents.
 
+#### Keeping a torrent as is:
+
+Sometimes a release should stay exactly as it is — a hand-picked version, a re-encode you like better than the current one, anything you do not want silently replaced. Tag it in the client and TorrUpd will leave it alone: such a torrent is neither collected from the client nor requested from the tracker.
+
+The tag is set in ``[Settings]``, several may be listed separated by commas (matching is case-insensitive):
+
+```ini
+skip_tags = stasis
+```
+
+An empty value disables the feature.
+
+> **Note for Transmission:** the mechanism works for both clients, but Transmission only supports labels over RPC — none of its interfaces (GTK, Qt, web) can set them. Use ``transmission-remote HOST:PORT -n user:pass -t <id> -L stasis``, keeping in mind that ``-L`` replaces the whole set of labels rather than adding to it. In qBittorrent, tags are set from the right-click menu as usual.
+
 #### Logs:
 
 Each run writes a log to ``torrent_updater.log`` in the config directory (``$HOME/.config/TorrUpd/`` or ``/PATH/TO/HOST/DIR`` for Docker) and to stdout, so for the Docker container the same output is available via ``docker logs torrupd``. The log covers what was checked, what was updated, and any tracker or client errors. Timestamps follow the system timezone (for Docker, set it via ``-e TZ=``, otherwise UTC is used).
@@ -133,6 +148,8 @@ Each run writes a log to ``torrent_updater.log`` in the config directory (``$HOM
 Common messages:
 
 - ``topic <id>: up to date`` — nothing to do.
+- ``[client] N torrent(s) excluded by tag (stasis)`` — skipped by ``skip_tags``, reported once per run when ``source = client``.
+- ``topic <id>: tagged "stasis", left as is`` — the same thing when ``source = file``, where topics are checked one by one.
 - ``topic <id>: change detected (hash differs), updating "..."`` — a new version was found.
 - ``topic <id>: no fingerprint on tracker`` — the topic page could not be read: the topic is gone or closed, or the cookie/login has expired.
 - ``downloaded data is not a valid torrent`` — a page was returned instead of a torrent file, usually an expired cookie or a Cloudflare challenge.

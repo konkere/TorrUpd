@@ -8,6 +8,21 @@ from os import path, getenv, mkdir
 from configparser import ConfigParser, NoOptionError, NoSectionError
 
 
+def work_dir():
+    return path.join(getenv('HOME'), '.config', 'TorrUpd')
+
+
+def log_file_path():
+    """
+    Resolve the log file before Conf() is built, so that logging is already
+    configured when the config starts talking to the torrent client.
+    """
+    directory = work_dir()
+    if not path.isdir(directory):
+        mkdir(directory)
+    return path.join(directory, 'torrent_updater.log')
+
+
 def get_ids_from_file(update_file, tracker_ids):
     tracker = None
     tracker_pattern = r'^\[([A-z]*)\]$'
@@ -24,6 +39,12 @@ def get_ids_from_file(update_file, tracker_ids):
                 topic_id = re.match(id_pattern, line).group(1)
                 tracker_ids[tracker].append(topic_id)
     return tracker_ids
+
+
+def parse_skip_tags(raw):
+    if not raw:
+        return set()
+    return {tag.strip().lower() for tag in raw.split(',') if tag.strip()}
 
 
 def get_ids_from_client(client, tracker_ids):
@@ -45,7 +66,7 @@ class Conf:
     }
 
     def __init__(self):
-        self.work_dir = path.join(getenv('HOME'), '.config', 'TorrUpd')
+        self.work_dir = work_dir()
         self.config_file = path.join(self.work_dir, 'settings.conf')
         self.update_file = path.join(self.work_dir, 'update.list')
         self.log_file = path.join(self.work_dir, 'torrent_updater.log')
@@ -54,6 +75,7 @@ class Conf:
         self.config.read(self.config_file)
         self.source = self.read_config('Settings', 'source')
         self.dry_run = self.read_config('Settings', 'dry_run').strip().lower() in ('1', 'true', 'yes', 'on')
+        self.skip_tags = parse_skip_tags(self.read_config('Settings', 'skip_tags'))
         self.auth = {
             'rutracker': {
                 'url': self.read_config('RuTracker', 'url'),
@@ -103,7 +125,7 @@ class Conf:
             'transmission': TM,
         }
         client_name = self.read_config('Settings', 'client').lower()
-        client = clients[client_name](self.auth[client_name])
+        client = clients[client_name](self.auth[client_name], skip_tags=self.skip_tags)
         return client
 
     def exist(self):
@@ -157,6 +179,7 @@ class Conf:
         self.config.set('Settings', 'client', 'qBittorrent')
         self.config.set('Settings', 'source', 'client')
         self.config.set('Settings', 'dry_run', 'false')
+        self.config.set('Settings', 'skip_tags', 'stasis')
         with open(self.config_file, 'w') as file:
             self.config.write(file)
         raise FileNotFoundError(f'Required to fill data in config: {self.config_file}')

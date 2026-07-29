@@ -3,7 +3,7 @@
 
 import logging
 import requests
-from config import Conf
+from config import Conf, log_file_path
 from bencoder import bdecode, BTFailure
 from urllib.parse import urljoin
 from tracker import RuTracker, NNMClub, TeamHD, Kinozal, rss_parser, resolve_tracker_access
@@ -15,6 +15,9 @@ def setup_logging(log_file):
         datefmt='%Y-%m-%d %H:%M:%S',
     )
     root = logging.getLogger()
+    # Drop anything a library (or logging's own basicConfig fallback) may
+    # have attached before us, otherwise every record is emitted twice.
+    root.handlers.clear()
     root.setLevel(logging.INFO)
     file_handler = logging.FileHandler(log_file, encoding='utf-8')
     file_handler.setFormatter(formatter)
@@ -54,6 +57,15 @@ def run_through_tracker(config, sessions, tracker, trackers):
         if current_torrent is None:
             logging.warning(
                 f'[{tracker}] topic {topic_id}: no matching torrent found in client, skipped'
+            )
+            continue
+        # Checked here rather than inside get_torrent_by_topic() so that the
+        # log says why the torrent was left alone, and so that it works for
+        # source = file too, where IDs never pass through all_topics().
+        if config.client.skipped(current_torrent):
+            logging.info(
+                f'[{tracker}] topic {topic_id}: tagged '
+                f'"{", ".join(sorted(config.client.skip_tags))}", left as is'
             )
             continue
         fresh_tracker = trackers[tracker]['incarnation'](
@@ -120,9 +132,11 @@ def run_through_tracker(config, sessions, tracker, trackers):
 
 
 def main():
-    config = Conf()
-    setup_logging(config.log_file)
+    # Logging first: Conf() already reaches out to the torrent client, and
+    # whatever it reports there has to end up in the log like everything else.
+    setup_logging(log_file_path())
     logging.info('TorrUpd run started')
+    config = Conf()
     sessions = {}
     trackers = {
         'rutracker': {

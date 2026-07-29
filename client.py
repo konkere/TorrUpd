@@ -26,11 +26,34 @@ def extract_topics(pattern, comments):
 
 
 class TorrentClient:
-    def __init__(self, auth):
+    def __init__(self, auth, skip_tags=None):
         self.auth = auth
+        self.skip_tags = skip_tags or set()
         self.client = None
         self.force_state = None
         self.hash_key = 'hash'
+
+    @staticmethod
+    def torrent_tags(torrent):
+        return []
+
+    def skipped(self, torrent):
+        """
+        A torrent carrying one of the skip_tags is left alone entirely: it is
+        neither collected from the client nor checked on the tracker. Handy for
+        hand-picked releases that must stay exactly as they are.
+        """
+        if not self.skip_tags:
+            return False
+        tags = {tag.lower() for tag in self.torrent_tags(torrent)}
+        return bool(self.skip_tags & tags)
+
+    def log_skipped(self, count):
+        if count:
+            logging.info(
+                f'[client] {count} torrent(s) excluded by tag '
+                f'({", ".join(sorted(self.skip_tags))})'
+            )
 
     def generate_client(self):
         pass
@@ -110,10 +133,25 @@ class QBT(TorrentClient):
                 return
             self.client.torrents.set_force_start(torrent_hashes=found['hash'])
 
+    @staticmethod
+    def torrent_tags(torrent):
+        # qBittorrent keeps tags as a single comma-separated string; a tag
+        # itself cannot contain a comma, so splitting is safe.
+        raw = torrent.get('tags') or ''
+        return [tag.strip() for tag in raw.split(',') if tag.strip()]
+
     def all_topics(self):
         pattern = r'^https?://([A-z-]*)\..*[d=](\d*)$'
-        dump_torrents = self.client.torrents_info()
-        comments = [torrent.properties['comment'] for torrent in dump_torrents]
+        comments = []
+        skipped = 0
+        for torrent in self.client.torrents_info():
+            # Filtering before reading properties also saves one API call per
+            # skipped torrent, since properties is a separate request.
+            if self.skipped(torrent):
+                skipped += 1
+                continue
+            comments.append(torrent.properties['comment'])
+        self.log_skipped(skipped)
         topics = extract_topics(pattern, comments)
         return topics
 
@@ -146,7 +184,7 @@ class TM(TorrentClient):
             torrent = torrent_tm.fields
             torrent['hash'] = torrent['hashString']
             torrent['category'] = None
-            torrent['tags'] = None
+            torrent['tags'] = torrent.get('labels') or []
             torrent['save_path'] = torrent['downloadDir']
             torrent['state'] = None
             if isinstance(topic_id, dict) and tracker in comment and topic_id['topic_id'] in comment:
@@ -164,19 +202,50 @@ class TM(TorrentClient):
         self.client.remove_torrent(delete_data=False, ids=torrent_hash)
 
     def add_torrent(self, torrent, data):
+        labels = list(data['tags'] or [])
         try:
             self.client.add_torrent(
                 torrent=torrent,
                 download_dir=data['path'],
+                labels=labels,
             )
         except Exception as exc:
-            logging.error(
-                f'[transmission] failed to add torrent to {data["path"]}: {exc}'
+            if not labels:
+                logging.error(
+                    f'[transmission] failed to add torrent to {data["path"]}: {exc}'
+                )
+                return
+            # Labels need RPC 16+ (Transmission 3.0). On an older daemon the
+            # call above fails, so retry without them rather than lose the
+            # torrent entirely.
+            logging.warning(
+                f'[transmission] adding torrent with labels failed ({exc}), '
+                f'retrying without them — labels {labels} will be lost'
             )
+            try:
+                self.client.add_torrent(
+                    torrent=torrent,
+                    download_dir=data['path'],
+                )
+            except Exception as retry_exc:
+                logging.error(
+                    f'[transmission] failed to add torrent to {data["path"]}: {retry_exc}'
+                )
+
+    @staticmethod
+    def torrent_tags(torrent):
+        # Transmission calls them labels and exposes them as a list.
+        return list(torrent.get('labels') or [])
 
     def all_topics(self):
         pattern = r'^https?://([A-z-]*)\..*[d=](\d*)$'
-        dump_torrents = self.client.get_torrents()
-        comments = [torrent.comment for torrent in dump_torrents]
+        comments = []
+        skipped = 0
+        for torrent in self.client.get_torrents():
+            if self.skipped(torrent.fields):
+                skipped += 1
+                continue
+            comments.append(torrent.comment)
+        self.log_skipped(skipped)
         topics = extract_topics(pattern, comments)
         return topics

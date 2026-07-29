@@ -38,6 +38,7 @@ password = TMPassword
 client = qBittorrent
 source = client
 dry_run = false
+skip_tags = stasis
 
 [FlareSolverr]
 url =
