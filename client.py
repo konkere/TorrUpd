@@ -129,6 +129,10 @@ class QBT(TorrentClient):
         self.client.torrents_delete(delete_files=False, torrent_hashes=torrent_hash)
 
     def add_torrent(self, torrent, data):
+        # For TeamHD data['topic_id'] is the whole RSS entry (dict) — it stays
+        # raw because find_added_torrent() matches on it, but only the plain id
+        # is ever put in a log line.
+        topic_display = data.get('display_id', data['topic_id'])
         try:
             self.client.torrents_add(
                 torrent_files=torrent,
@@ -138,7 +142,7 @@ class QBT(TorrentClient):
             )
         except Exception as exc:
             logging.error(
-                f'[{data["tracker"]}] topic {data["topic_id"]}: failed to add torrent '
+                f'[{data["tracker"]}] topic {topic_display}: failed to add torrent '
                 f'to qBittorrent ({data["path"]}): {exc}'
             )
             return
@@ -146,7 +150,7 @@ class QBT(TorrentClient):
             found = self.find_added_torrent(torrent, data)
             if found is None:
                 logging.warning(
-                    f'[{data["tracker"]}] topic {data["topic_id"]}: added torrent not found '
+                    f'[{data["tracker"]}] topic {topic_display}: added torrent not found '
                     f'right after adding, cannot restore force-start state'
                 )
                 return

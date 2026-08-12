@@ -53,10 +53,14 @@ def run_through_tracker(config, sessions, tracker, trackers):
     for topic_id in config.tracker_ids[tracker]:
         if isinstance(topic_id, dict) and not topic_id.get('topic_id'):
             continue
+        # Log-safe id for the messages emitted before the tracker object (and
+        # its display_id) exists: for TeamHD topic_id is the whole RSS entry,
+        # whose download_url carries the passkey.
+        topic_display = topic_id['topic_id'] if isinstance(topic_id, dict) else topic_id
         current_torrent = config.client.get_torrent_by_topic(tracker, topic_id)
         if current_torrent is None:
             logging.warning(
-                f'[{tracker}] topic {topic_id}: no matching torrent found in client, skipped'
+                f'[{tracker}] topic {topic_display}: no matching torrent found in client, skipped'
             )
             continue
         # Checked here rather than inside get_torrent_by_topic() so that the
@@ -64,7 +68,7 @@ def run_through_tracker(config, sessions, tracker, trackers):
         # source = file too, where IDs never pass through all_topics().
         if config.client.skipped(current_torrent):
             logging.info(
-                f'[{tracker}] topic {topic_id}: tagged '
+                f'[{tracker}] topic {topic_display}: tagged '
                 f'"{", ".join(sorted(config.client.skip_tags))}", left as is'
             )
             continue
@@ -114,6 +118,7 @@ def run_through_tracker(config, sessions, tracker, trackers):
                 'state': current_torrent['state'],
                 'tracker': tracker,
                 'topic_id': topic_id,  # raw internal id — must match what topic_url is built from
+                'display_id': fresh_tracker.display_id,  # log-safe id (see TeamHD)
             }
             config.client.remove_torrent(current_torrent['hash'])
             logging.info(
@@ -126,7 +131,7 @@ def run_through_tracker(config, sessions, tracker, trackers):
             )
             if new_torrent_name != current_torrent['name']:
                 logging.warning(
-                    f'[{tracker}] topic {topic_id}: torrent name changed '
+                    f'[{tracker}] topic {fresh_tracker.display_id}: torrent name changed '
                     f'"{current_torrent["name"]}" -> "{new_torrent_name}". Duplicate files may appear.'
                 )
 

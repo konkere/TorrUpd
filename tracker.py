@@ -571,6 +571,12 @@ class TeamHD(Tracker):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # Unlike every other tracker, topic_id here is the whole RSS entry
+        # (dict), so the inherited str(topic_id) would dump the entire record
+        # into every log line — including the passkey inside download_url. The
+        # entry's own id is the same number details/id<N> is built from, which
+        # is exactly what the other trackers show.
+        self.display_id = self.topic_id['topic_id']
         self.download_url = self.topic_id['download_url']
         self.fingerprint = self.topic_id['size']
         self.base_url = extract_base_url(self.download_url)
@@ -580,7 +586,9 @@ class TeamHD(Tracker):
         try:
             response = requests.get(self.download_url, timeout=30)
         except RequestException as exc:
-            logging.error(f'[teamhd] download failed for {self.download_url}: {exc}')
+            # Deliberately not logging the URL: it carries the account passkey
+            # as a query param, and logs get pasted around.
+            logging.error(f'[teamhd] topic {self.display_id}: download failed: {exc}')
             return None
         torrent = response.content
         return torrent
