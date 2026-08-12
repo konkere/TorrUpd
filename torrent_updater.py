@@ -6,7 +6,7 @@ import requests
 from config import Conf, log_file_path
 from bencoder import bdecode, BTFailure
 from urllib.parse import urljoin
-from tracker import RuTracker, NNMClub, TeamHD, Kinozal, rss_parser, resolve_tracker_access
+from tracker import RuTracker, NNMClub, TeamHD, Kinozal, BookTracker, rss_parser, resolve_tracker_access
 
 
 def setup_logging(log_file):
@@ -158,6 +158,11 @@ def main():
         'kinozal': {
             'incarnation': Kinozal,
             'fingerprint': 'total_size',
+            'dl_from': 'topic',
+        },
+        'booktracker': {
+            'incarnation': BookTracker,
+            'fingerprint': 'hash',
             'dl_from': 'topic',
         },
     }

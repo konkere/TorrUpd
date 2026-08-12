@@ -63,6 +63,7 @@ class Conf:
     CF_BYPASS_SECTIONS = {
         'rutracker': 'RuTracker',
         'nnmclub': 'NNMClub',
+        'booktracker': 'BookTracker',
     }
 
     def __init__(self):
@@ -102,6 +103,14 @@ class Conf:
                 'url': self.read_config('Kinozal', 'url'),
                 'username': self.read_config('Kinozal', 'username'),
                 'password': self.read_config('Kinozal', 'password'),
+            },
+            'booktracker': {
+                'url': self.read_config('BookTracker', 'url'),
+                'username': self.read_config('BookTracker', 'username'),
+                'password': self.read_config('BookTracker', 'password'),
+                'cookie': self.read_config('BookTracker', 'cookie'),
+                'useragent': self.read_config('BookTracker', 'useragent'),
+                'flaresolverr': self.read_config('FlareSolverr', 'url'),
             },
             'qbittorrent': {
                 'host': self.read_config('qBittorrent', 'host'),
@@ -163,6 +172,12 @@ class Conf:
         self.config.set('Kinozal', 'url', 'https://kinozal.tv')
         self.config.set('Kinozal', 'username', 'KTVUsername')
         self.config.set('Kinozal', 'password', 'KTVPassword')
+        self.config.add_section('BookTracker')
+        self.config.set('BookTracker', 'url', 'https://booktracker.org')
+        self.config.set('BookTracker', 'username', 'BTUsername')
+        self.config.set('BookTracker', 'password', 'BTPassword')
+        self.config.set('BookTracker', 'cookie', '')
+        self.config.set('BookTracker', 'useragent', '')
         self.config.add_section('FlareSolverr')
         self.config.set('FlareSolverr', 'url', '')
         self.config.add_section('qBittorrent')
@@ -185,7 +200,7 @@ class Conf:
         raise FileNotFoundError(f'Required to fill data in config: {self.config_file}')
 
     def create_update_file(self):
-        update_info = '[RuTracker]\n\n[NNMClub]\n\n[TeamHD]\n\n[Kinozal]\n'
+        update_info = '[RuTracker]\n\n[NNMClub]\n\n[TeamHD]\n\n[Kinozal]\n\n[BookTracker]\n'
         with open(self.update_file, 'w') as file:
             file.write(update_info)
         raise FileNotFoundError(f'Required to fill list of topics id in: {self.update_file}')
@@ -223,6 +238,7 @@ class Conf:
             'nnmclub': [],
             'teamhd': [],
             'kinozal': [],
+            'booktracker': [],
         }
         if self.source == 'file':
             tracker_ids = get_ids_from_file(self.update_file, tracker_ids)

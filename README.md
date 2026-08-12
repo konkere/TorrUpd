@@ -4,7 +4,7 @@ Tool for automatically keeping seeded torrents up to date. When a topic on a tra
 
 It runs once per launch: start it, it does its job and exits. Scheduling is up to you (cron, a systemd timer, a Docker container started on a timer — whatever fits).
 
-Supported trackers: RuTracker and NNM-Club (compared by topic hash), Kinozal (compared by torrent size in topics), TeamHD (compared by torrent size in RSS).
+Supported trackers: RuTracker, NNM-Club and BookTracker (compared by topic hash), Kinozal (compared by torrent size in topics), TeamHD (compared by torrent size in RSS).
 
 Supported clients: qBittorrent, Transmission.
 
@@ -155,7 +155,7 @@ Common messages:
 - ``downloaded data is not a valid torrent`` — a page was returned instead of a torrent file, usually an expired cookie or a Cloudflare challenge.
 - ``[flaresolverr] login was not accepted`` — the automatic login hit a CAPTCHA; supply a cookie manually.
 
-For NNM-Club, topics are logged as ``<post id> (<topic id>)``: the first number is what TorrUpd works with (it comes from the torrent's comment field), the second is the human-facing topic number on the site.
+For NNM-Club and BookTracker, topics are logged as ``<post id> (<topic id>)``: the first number is what TorrUpd works with (it comes from the torrent's comment field), the second is the human-facing topic number on the site.
 
 ## License
 

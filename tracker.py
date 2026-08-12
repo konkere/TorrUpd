@@ -4,11 +4,11 @@
 import re
 import time
 import logging
-from curl_cffi import requests
-from curl_cffi.requests.exceptions import RequestException
 from bs4 import BeautifulSoup
-from bencoder import bencode, bdecode, BTFailure
+from curl_cffi import requests
 from feedparser import parse as feed_parse
+from bencoder import bencode, bdecode, BTFailure
+from curl_cffi.requests.exceptions import RequestException
 from urllib.parse import urljoin, urlsplit, urlunsplit, urlparse, urlencode
 
 
@@ -329,6 +329,27 @@ class Tracker:
             torrent_hash = ''
         return torrent_hash
 
+    def _build_display_id(self):
+        """
+        For trackers addressed by post id (the `p=` query param — nnmclub,
+        booktracker), self.topic_id is that post id: it's what actually came
+        from the torrent's comment field in the client, and what topic_url
+        and the hash check are built from, so it stays the primary,
+        first-shown number here regardless of anything else. The
+        human-recognizable topic number (`t=`) isn't something we request
+        directly, but it's normally present somewhere in the topic page's
+        own links (breadcrumbs, pagination, "reply" button, etc.) even
+        though we reached the page via `p=` — so pull it from the page we
+        already fetched, purely as auxiliary info in parentheses, without
+        requesting anything extra. Falls back to just the post id if no such
+        link is found.
+        """
+        html = getattr(self.last_topic_response, 'text', '') if self.last_topic_response else ''
+        match = re.search(r'viewtopic\.php\?t=(\d+)', html)
+        if match and match.group(1) != str(self.topic_id):
+            return f'{self.topic_id} ({match.group(1)})'
+        return str(self.topic_id)
+
     def create_session(self):
         self.session = requests.Session(
             impersonate='chrome', default_encoding=self.default_encoding
@@ -522,26 +543,6 @@ class NNMClub(Tracker):
         self.fingerprint = self.get_actual_hash()
         self.display_id = self._build_display_id()
 
-    def _build_display_id(self):
-        """
-        self.topic_id is nnmclub's post id (the `p=` query param) — it's
-        what actually came from the torrent's comment field in the client,
-        and what topic_url/the hash check are built from, so it stays the
-        primary, first-shown number here regardless of anything else. The
-        human-recognizable topic number (`t=`) isn't something we request
-        directly, but it's normally present somewhere in the topic page's
-        own links (breadcrumbs, pagination, "reply" button, etc.) even
-        though we reached the page via `p=` — so pull it from the page we
-        already fetched, purely as auxiliary info in parentheses, without
-        requesting anything extra. Falls back to just the post id if no such
-        link is found.
-        """
-        html = getattr(self.last_topic_response, 'text', '') if self.last_topic_response else ''
-        match = re.search(r'viewtopic\.php\?t=(\d+)', html)
-        if match and match.group(1) != str(self.topic_id):
-            return f'{self.topic_id} ({match.group(1)})'
-        return str(self.topic_id)
-
     def download_torrent(self):
         response = self.authenticated_get(self.topic_url)
         if response is None:
@@ -644,3 +645,148 @@ class Kinozal(Tracker):
         if not weight:
             logging.error(f'[kinozal] could not read size from {self.topic_url} after 5 attempts')
         return weight
+
+
+class BookTracker(Tracker):
+    """
+    booktracker.org — a TorrentPier-based board, structurally close to
+    NNMClub: topics are addressed by post id (the `p=` query param, which is
+    what ends up in the torrent's comment field), and the fingerprint is the
+    hash taken from the magnet link on the topic page. Two differences that
+    matter here:
+
+    1. Everything lives at the site root, so no '/forum/' is joined to the
+       configured URL, and pages are UTF-8 (the base default is fine).
+    2. The download link carries the *attachment* id, which has nothing to
+       do with the post or topic id — post p=111111 is downloaded from
+       download.php?id=111111. So, unlike RuTracker/Kinozal, the download
+       URL cannot be built from topic_id at all; it can only be read off the
+       topic page. It is picked up from the page already fetched for the
+       hash check, so the common "nothing changed" path still costs exactly
+       one request per topic.
+
+    Note that the comment in the client may carry an explicit port
+    (https://booktracker.org:443/viewtopic.php?p=111111). That only affects
+    how the id is extracted from the comment (client.extract_topics handles
+    it) — every URL here is built from the configured tracker URL instead.
+    """
+
+    @staticmethod
+    def login_url_and_params(auth):
+        login_url = urljoin(auth['url'], 'login.php')
+        post_params = {
+            'login': 'Вход',
+            'login_username': auth['username'],
+            'login_password': auth['password'],
+        }
+        return login_url, post_params
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.login_url, login_params = self.login_url_and_params(self.auth)
+        self.post_params.update(login_params)
+        self.base_url = self.auth['url']
+        self.topic_url = urljoin(self.base_url, f'viewtopic.php?p={self.topic_id}')
+        self.download_url = ''
+        self.magnet_find = {'class': 'magnet-link'}
+        self.fingerprint = self.get_actual_hash()
+        self.display_id = self._build_display_id()
+        # Free of charge: the page fetched for the hash is still in hand, so
+        # the download link is taken from it right away instead of asking
+        # for the same page again at download time.
+        self.get_download_url(self.last_topic_response)
+
+    def _build_display_id(self):
+        """
+        Same idea as the inherited version — show the post id TorrUpd works
+        with, plus the site's own topic number for readability — but the
+        inherited regex cannot be used here: booktracker's header links to
+        the rules topic (viewtopic.php?t=1) on every page, so the first `t=`
+        found is that, not this topic. The magnet link in the attach block
+        carries the real topic number in data-topic_id instead, which is
+        unambiguous. Falls back to the bare post id if it is absent.
+        """
+        response = self.last_topic_response
+        if response is None:
+            return str(self.topic_id)
+        topic = BeautifulSoup(response.text, features='html.parser')
+        magnet = topic.find('a', self.magnet_find)
+        topic_number = magnet.get('data-topic_id') if magnet else ''
+        if topic_number and topic_number != str(self.topic_id):
+            return f'{self.topic_id} ({topic_number})'
+        return str(self.topic_id)
+
+    def get_actual_hash(self):
+        """
+        The magnet link is the primary source (shared with the other
+        trackers), but the attach block also spells the hash out in a
+        <span id="tor-hash">. Falling back to it costs nothing — the page is
+        already parsed — and keeps the topic checkable if the magnet link is
+        hidden for the current user or dropped from the template.
+        """
+        torrent_hash = super().get_actual_hash()
+        if torrent_hash:
+            return torrent_hash
+        response = self.last_topic_response
+        if response is None:
+            return ''
+        topic = BeautifulSoup(response.text, features='html.parser')
+        hash_span = topic.find('span', id='tor-hash')
+        if hash_span is None:
+            return ''
+        return hash_span.get_text(strip=True)
+
+    def get_download_url(self, response):
+        """
+        Find download.php?id=<attach id> on the topic page. A page reached by
+        `p=` can show several posts, and an attach block is not necessarily
+        the one being checked, so the attach table whose <span id="tor-hash">
+        matches the fingerprint wins. Anything else is a fallback: the first
+        attach table, then any download link on the page — better a plausible
+        guess than nothing, since a wrong torrent would be caught by the name
+        change warning downstream anyway.
+        """
+        if response is None:
+            self.download_url = ''
+            return
+        topic = BeautifulSoup(response.text, features='html.parser')
+        href_pattern = re.compile(r'download\.php\?id=\d+')
+        href = ''
+        fallback = ''
+        for table in topic.find_all('table', {'class': 'attach'}):
+            link = table.find('a', href=href_pattern)
+            if link is None:
+                continue
+            fallback = fallback or link.get('href')
+            hash_span = table.find('span', id='tor-hash')
+            hash_in_table = hash_span.get_text(strip=True) if hash_span else ''
+            if self.fingerprint and hash_in_table.lower() == self.fingerprint.lower():
+                href = link.get('href')
+                break
+        if not href:
+            href = fallback
+        if not href:
+            link = topic.find('a', href=href_pattern)
+            href = link.get('href') if link else ''
+        if not href:
+            logging.warning(
+                f'[booktracker] download link not found on {self.topic_url} '
+                f'(not logged in or cookie expired?)'
+            )
+            self.download_url = ''
+            return
+        self.download_url = urljoin(self.base_url, href)
+
+    def download_torrent(self):
+        if not self.download_url:
+            # Only reached if the link was missing on the page fetched in
+            # __init__ (e.g. the session was not logged in yet at that
+            # point) — retry with a fresh page rather than giving up.
+            response = self.authenticated_get(self.topic_url)
+            if response is None:
+                return None
+            self.get_download_url(response)
+        if not self.download_url:
+            return None
+        response = self.authenticated_get(self.download_url)
+        return response.content if response is not None else None

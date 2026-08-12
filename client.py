@@ -2,10 +2,29 @@
 # -*- coding: utf-8 -*-
 
 import re
+import time
+import hashlib
 import logging
 from qbittorrentapi import Client as QBT_Client
 from transmission_rpc import Client as TM_Client
+from bencoder import bencode, bdecode, BTFailure
 from qbittorrentapi.torrents import TorrentDictionary
+
+
+def torrent_infohash(torrent):
+    """
+    The v1 infohash of a torrent file: sha1 of its bencoded info dict — the
+    same id the client keys torrents by. Computed locally so that a
+    just-added torrent can be looked up directly instead of scanning every
+    torrent's comment field, which is both slow and racy right after adding.
+    Returns '' if the data cannot be decoded, leaving the caller to fall
+    back to the comment-based search.
+    """
+    try:
+        info = bdecode(torrent)[b'info']
+    except (BTFailure, KeyError, TypeError):
+        return ''
+    return hashlib.sha1(bencode(info)).hexdigest()
 
 
 def extract_topics(pattern, comments):
@@ -124,7 +143,7 @@ class QBT(TorrentClient):
             )
             return
         if data['state'] == self.force_state:
-            found = self.get_torrent_by_topic(data['tracker'], data['topic_id'])
+            found = self.find_added_torrent(torrent, data)
             if found is None:
                 logging.warning(
                     f'[{data["tracker"]}] topic {data["topic_id"]}: added torrent not found '
@@ -132,6 +151,43 @@ class QBT(TorrentClient):
                 )
                 return
             self.client.torrents.set_force_start(torrent_hashes=found['hash'])
+
+    def find_added_torrent(self, torrent, data, attempts=5, delay=2):
+        """
+        Locate the torrent that was just handed to qBittorrent.
+
+        torrents_add() only queues the file: the torrent shows up in the API
+        a moment later, so a single immediate lookup regularly comes back
+        empty and the force-start state is lost for no good reason. Hence a
+        few retries with a short pause.
+
+        The lookup itself goes by infohash, computed from the torrent file
+        we already have. That is exact, costs one small request per attempt,
+        and — unlike matching on the comment field — does not depend on the
+        tracker writing the same kind of topic link into the torrent as the
+        one the client currently holds. The comment search stays as a
+        fallback for the (unlikely) case the file cannot be decoded here.
+        """
+        torrent_hash = torrent_infohash(torrent)
+        for attempt in range(attempts):
+            if torrent_hash:
+                try:
+                    found = self.client.torrents_info(torrent_hashes=torrent_hash)
+                except Exception as exc:
+                    logging.warning(
+                        f'[{data["tracker"]}] topic {data["topic_id"]}: lookup of the added '
+                        f'torrent failed (attempt {attempt + 1}/{attempts}): {exc}'
+                    )
+                    found = []
+                if found:
+                    return found[0]
+            else:
+                found = self.get_torrent_by_topic(data['tracker'], data['topic_id'])
+                if found is not None:
+                    return found
+            if attempt + 1 < attempts:
+                time.sleep(delay)
+        return None
 
     @staticmethod
     def torrent_tags(torrent):
