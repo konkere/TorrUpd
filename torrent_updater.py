@@ -3,9 +3,9 @@
 
 import logging
 import requests
+from urllib.parse import urljoin
 from config import Conf, log_file_path
 from bencoder import bdecode, BTFailure
-from urllib.parse import urljoin
 from tracker import RuTracker, NNMClub, TeamHD, Kinozal, BookTracker, rss_parser, resolve_tracker_access
 
 
@@ -209,13 +209,6 @@ def main():
             requested = len(config.tracker_ids[tracker])
             logging.info(f'[{tracker}] fetching RSS feed for {requested} topic(s)')
             config.tracker_ids[tracker] = rss_parser(rss_url, config.tracker_ids[tracker])
-            resolved = sum(1 for entry in config.tracker_ids[tracker] if entry.get('topic_id'))
-            logging.info(f'[{tracker}] RSS resolved {resolved}/{requested} topic(s)')
-            if resolved == 0:
-                logging.warning(
-                    f'[{tracker}] RSS returned no usable entries '
-                    f'(passkey/login issue or empty feed?)'
-                )
 
     # Second pass: reach each tracker and run updates.
     for tracker in config.tracker_ids.keys():
@@ -247,9 +240,14 @@ def main():
                         f'[{tracker}] HTTP {response.status_code} (attempt {attempt + 1}/5)'
                     )
         if reachable:
-            logging.info(
-                f'[{tracker}] reachable, checking {len(config.tracker_ids[tracker])} topic(s)'
+            # Feed-based trackers carry a placeholder entry for every topic the
+            # feed did not cover; those are skipped in run_through_tracker, so
+            # counting them here would promise more checks than actually happen.
+            checkable = sum(
+                1 for topic_id in config.tracker_ids[tracker]
+                if not isinstance(topic_id, dict) or topic_id.get('topic_id')
             )
+            logging.info(f'[{tracker}] reachable, checking {checkable} topic(s)')
             run_through_tracker(config, sessions, tracker, trackers)
         else:
             logging.error(f'[{tracker}] unreachable, skipped')

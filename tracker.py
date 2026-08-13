@@ -27,26 +27,42 @@ def rss_parser(rss_url, ids):
         logging.error(f'[teamhd] RSS fetch/parse failed: {exc}')
         return list(result_entries.values())
     feed_status = getattr(feed, 'status', None)
-    if feed_status == 200:
-        entries = reversed(feed['entries'])
-        for entry in entries:
-            try:
-                entry_id = re.search(guid_pattern, entry['id']).group(1)
-            except (AttributeError, KeyError):
-                logging.warning('[teamhd] RSS entry without a parsable id, skipped')
-                continue
-            if entry_id in ids:
-                entry_data = {
-                    'topic_id': entry_id,
-                    'size': entry['links'][-1]['length'],
-                    'download_url': entry['link'],
-                    'name': entry['title']
-                }
-                result_entries[entry_id] = entry_data
-    else:
+    if feed_status != 200:
         logging.warning(f'[teamhd] RSS returned status {feed_status} (expected 200)')
-    new_ids = list(result_entries.values())
-    return new_ids
+        return list(result_entries.values())
+    entries = list(feed['entries'])
+    matched = 0
+    for entry in reversed(entries):
+        try:
+            entry_id = re.search(guid_pattern, entry['id']).group(1)
+        except (AttributeError, KeyError):
+            logging.warning('[teamhd] RSS entry without a parsable id, skipped')
+            continue
+        if entry_id in ids:
+            matched += 1
+            result_entries[entry_id] = {
+                'topic_id': entry_id,
+                'size': entry['links'][-1]['length'],
+                'download_url': entry['link'],
+                'name': entry['title'],
+            }
+    # The feed is a window onto the tracker's recent releases, not a lookup
+    # of everything tracked here: a topic that is not in it simply has no
+    # size to compare against this run. That is the normal case and not a
+    # failure — only a feed with no entries at all points at a real problem
+    # (bad passkey, login gone), so that is what gets the warning.
+    if not entries:
+        logging.warning('[teamhd] RSS feed came back empty (passkey/login issue?)')
+    else:
+        absent = len(ids) - matched
+        message = (
+            f'[teamhd] RSS feed: {len(entries)} entry(ies), '
+            f'{matched} of {len(ids)} tracked topic(s) present'
+        )
+        if absent:
+            message += f', {absent} not in the feed (not checked this run)'
+        logging.info(message)
+    return list(result_entries.values())
 
 
 def _login_response_looks_unauthenticated(html):
