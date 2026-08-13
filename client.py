@@ -11,6 +11,9 @@ from bencoder import bencode, bdecode, BTFailure
 from qbittorrentapi.torrents import TorrentDictionary
 
 
+TOPIC_PATTERN = r'^https?://([A-z-]*)\..*[d=](\d*)$'
+
+
 def torrent_infohash(torrent):
     """
     The v1 infohash of a torrent file: sha1 of its bencoded info dict — the
@@ -27,21 +30,31 @@ def torrent_infohash(torrent):
     return hashlib.sha1(bencode(info)).hexdigest()
 
 
-def extract_topics(pattern, comments):
-    topics = {}
-    for comment in comments:
-        re_comment = re.match(pattern, comment)
-        try:
-            tracker_name = re_comment.group(1)
-            topic_id = re_comment.group(2)
-        except AttributeError:
-            continue
-        tracker_name = tracker_name.replace('-', '')
-        try:
-            topics[tracker_name].append(topic_id)
-        except KeyError:
-            topics[tracker_name] = [topic_id]
-    return topics
+def parse_topic(comment, pattern=TOPIC_PATTERN):
+    """
+    (tracker, topic_id) out of a torrent comment, or None if the comment is
+    not a topic URL we understand. The comment may carry an explicit port
+    (https://booktracker.org:443/viewtopic.php?p=111111), hence the loose
+    middle part of the pattern.
+    """
+    match = re.match(pattern, comment or '')
+    if not match:
+        return None
+    tracker_name = match.group(1).replace('-', '').lower()
+    topic_id = match.group(2)
+    if not tracker_name or not topic_id:
+        return None
+    return tracker_name, topic_id
+
+
+def topic_key(topic_id):
+    """
+    The plain id to match on. For TeamHD topic_id is the whole RSS entry
+    (a dict), everywhere else it is already a string.
+    """
+    if isinstance(topic_id, dict):
+        return topic_id.get('topic_id') or ''
+    return topic_id or ''
 
 
 class TorrentClient:
@@ -51,6 +64,12 @@ class TorrentClient:
         self.client = None
         self.force_state = None
         self.hash_key = 'hash'
+        # One snapshot of the client per run (see build_snapshot): the list of
+        # (torrent, comment) pairs every lookup works on, plus an index that
+        # turns the common case into a dict access. Lives in memory, for the
+        # length of the run, and that is all.
+        self.entries = None
+        self.index = {}
 
     @staticmethod
     def torrent_tags(torrent):
@@ -77,17 +96,97 @@ class TorrentClient:
     def generate_client(self):
         pass
 
-    def get_torrent_by_hash(self, torrent_hash):
-        pass
+    def iter_torrents(self):
+        """Every torrent in the client, in the shape the rest of the code expects."""
+        return []
 
-    def get_torrent_by_topic(self, tracker, topic_id):
+    def torrent_comment(self, torrent):
+        return torrent.get('comment') or ''
+
+    def refresh_torrent(self, torrent):
+        """Re-read a single torrent, straight from the client."""
+        return torrent
+
+    def get_torrent_by_hash(self, torrent_hash):
         pass
 
     def remove_torrent(self, torrent_info):
         pass
 
+    def build_snapshot(self):
+        """
+        Walk the client once and keep what was read.
+
+        Both the topic collection and the per-topic lookup need the same
+        thing — every torrent together with its comment — so it is fetched
+        once per run instead of once per topic. The index covers comments
+        that parse as a topic URL; entries keeps the full list for the
+        substring fallback, which costs nothing now that it runs in memory.
+
+        The snapshot is built once and never refreshed: it describes the
+        client as it was at the start of the run, and the next run starts
+        from a fresh read. Nothing is stored between runs.
+        """
+        entries = []
+        index = {}
+        skipped = 0
+        for torrent in self.iter_torrents():
+            # Filtering before reading the comment also saves an API call per
+            # skipped torrent whenever the comment lives in a separate request.
+            if self.skipped(torrent):
+                skipped += 1
+                continue
+            comment = self.torrent_comment(torrent)
+            entries.append((torrent, comment.replace('-', '')))
+            topic = parse_topic(comment)
+            if topic is not None:
+                # First torrent wins, as with the old linear search.
+                index.setdefault(topic, torrent)
+        self.log_skipped(skipped)
+        self.entries = entries
+        self.index = index
+
+    def snapshot(self):
+        if self.entries is None:
+            self.build_snapshot()
+        return self.entries
+
+    def get_torrent_by_topic(self, tracker, topic_id):
+        self.snapshot()
+        key = topic_key(topic_id)
+        if not key:
+            return None
+        torrent = self.index.get((tracker, key))
+        if torrent is not None:
+            return torrent
+        # Fallback for comments the pattern does not parse (a www. prefix, an
+        # unusual host layout): same substring test as before, now in memory.
+        for torrent, comment in self.entries:
+            if tracker in comment and key in comment:
+                return torrent
+        return None
+
+    def search_torrent_by_topic(self, tracker, topic_id):
+        """
+        Same search, but straight against the client instead of the snapshot.
+        Only for the rare spot where the snapshot is knowingly out of date:
+        right after a torrent has been added (see find_added_torrent).
+        """
+        key = topic_key(topic_id)
+        if not key:
+            return None
+        for torrent in self.iter_torrents():
+            comment = self.torrent_comment(torrent).replace('-', '')
+            if tracker in comment and key in comment:
+                return torrent
+        return None
+
     def all_topics(self):
-        pass
+        self.snapshot()
+        topics = {}
+        for tracker_name, topic_id in self.index:
+            topics.setdefault(tracker_name, []).append(topic_id)
+        return topics
 
 
 class QBT(TorrentClient):
@@ -96,6 +195,9 @@ class QBT(TorrentClient):
         super().__init__(*args, **kwargs)
         self.client = self.generate_client()
         self.force_state = 'forcedUP'
+        # Whether torrents_info() carries the comment field: decided once, by
+        # the presence of the key rather than by a version number.
+        self.comment_in_info = None
 
     def generate_client(self):
         client = QBT_Client(
@@ -110,15 +212,44 @@ class QBT(TorrentClient):
         torrent = self.client.torrents_info(torrent_hashes=torrent_hash)[0]
         return torrent
 
-    def get_torrent_by_topic(self, tracker, topic_id):
-        torrents = self.client.torrents_info()
-        for torrent in torrents:
-            comment = torrent.properties['comment'].replace('-', '')
-            if isinstance(topic_id, dict) and tracker in comment and topic_id['topic_id'] in comment:
-                return torrent
-            elif isinstance(topic_id, str) and tracker in comment and topic_id in comment:
-                return torrent
-        return None
+    def iter_torrents(self):
+        return self.client.torrents_info()
+
+    def torrent_comment(self, torrent):
+        """
+        Newer WebAPI versions return comment right in torrents_info(), which
+        makes the whole run a single request. Older ones keep it in
+        /torrents/properties, and TorrentDictionary.properties is not cached
+        by qbittorrent-api: every access is another HTTP request.
+        """
+        if self.comment_in_info is None:
+            self.comment_in_info = 'comment' in torrent
+            if not self.comment_in_info:
+                logging.info(
+                    '[client] qBittorrent does not return comment in torrents_info(), '
+                    'reading it from properties instead (one request per torrent)'
+                )
+        if self.comment_in_info:
+            return torrent.get('comment') or ''
+        return torrent.properties.get('comment') or ''
+
+    def refresh_torrent(self, torrent):
+        """
+        The snapshot is taken at the start of the run, so by the time a
+        torrent is actually updated its state (and, in principle, its path or
+        tags) may have moved on — force-start would not be restored for a
+        torrent that was still checking back then. One targeted request right
+        before the update, only for torrents that are really being updated.
+        """
+        torrent_hash = torrent.get('hash')
+        if not torrent_hash:
+            return torrent
+        try:
+            fresh = self.client.torrents_info(torrent_hashes=torrent_hash)
+        except Exception as exc:
+            logging.warning(f'[client] failed to re-read torrent {torrent_hash}: {exc}')
+            return torrent
+        return fresh[0] if fresh else torrent
 
     def remove_torrent(self, torrent_info):
         torrent_hash = ''
@@ -170,7 +301,9 @@ class QBT(TorrentClient):
         and — unlike matching on the comment field — does not depend on the
         tracker writing the same kind of topic link into the torrent as the
         one the client currently holds. The comment search stays as a
-        fallback for the (unlikely) case the file cannot be decoded here.
+        fallback for the (unlikely) case the file cannot be decoded here —
+        and it goes to the client directly, since the run's snapshot still
+        holds the torrent that was just replaced.
         """
         torrent_hash = torrent_infohash(torrent)
         for attempt in range(attempts):
@@ -186,7 +319,7 @@ class QBT(TorrentClient):
                 if found:
                     return found[0]
             else:
-                found = self.get_torrent_by_topic(data['tracker'], data['topic_id'])
+                found = self.search_torrent_by_topic(data['tracker'], data['topic_id'])
                 if found is not None:
                     return found
             if attempt + 1 < attempts:
@@ -199,21 +332,6 @@ class QBT(TorrentClient):
         # itself cannot contain a comma, so splitting is safe.
         raw = torrent.get('tags') or ''
         return [tag.strip() for tag in raw.split(',') if tag.strip()]
-
-    def all_topics(self):
-        pattern = r'^https?://([A-z-]*)\..*[d=](\d*)$'
-        comments = []
-        skipped = 0
-        for torrent in self.client.torrents_info():
-            # Filtering before reading properties also saves one API call per
-            # skipped torrent, since properties is a separate request.
-            if self.skipped(torrent):
-                skipped += 1
-                continue
-            comments.append(torrent.properties['comment'])
-        self.log_skipped(skipped)
-        topics = extract_topics(pattern, comments)
-        return topics
 
 
 class TM(TorrentClient):
@@ -237,21 +355,37 @@ class TM(TorrentClient):
         torrent = self.client.get_torrent(torrent_id=torrent_hash)
         return torrent
 
-    def get_torrent_by_topic(self, tracker, topic_id):
-        torrents = self.client.get_torrents()
-        for torrent_tm in torrents:
-            comment = torrent_tm.comment.replace('-', '')
-            torrent = torrent_tm.fields
-            torrent['hash'] = torrent['hashString']
-            torrent['category'] = None
-            torrent['tags'] = torrent.get('labels') or []
-            torrent['save_path'] = torrent['downloadDir']
-            torrent['state'] = None
-            if isinstance(topic_id, dict) and tracker in comment and topic_id['topic_id'] in comment:
-                return torrent
-            elif isinstance(topic_id, str) and tracker in comment and topic_id in comment:
-                return torrent
-        return None
+    @staticmethod
+    def normalized(torrent_tm):
+        """Transmission fields plus the keys the rest of the code reads."""
+        torrent = torrent_tm.fields
+        torrent['hash'] = torrent['hashString']
+        torrent['category'] = None
+        torrent['tags'] = torrent.get('labels') or []
+        torrent['save_path'] = torrent['downloadDir']
+        torrent['state'] = None
+        # Kinozal and TeamHD compare sizes, not hashes, and look the value up
+        # under the qBittorrent spelling. Both report plain bytes, so the
+        # numbers are directly comparable.
+        torrent['total_size'] = torrent.get('totalSize')
+        return torrent
+
+    def iter_torrents(self):
+        # get_torrents() already carries the comment in the fields, so the
+        # whole list costs exactly one request.
+        for torrent_tm in self.client.get_torrents():
+            yield self.normalized(torrent_tm)
+
+    def refresh_torrent(self, torrent):
+        torrent_hash = torrent.get('hash')
+        if not torrent_hash:
+            return torrent
+        try:
+            fresh = self.client.get_torrent(torrent_id=torrent_hash)
+        except Exception as exc:
+            logging.warning(f'[client] failed to re-read torrent {torrent_hash}: {exc}')
+            return torrent
+        return self.normalized(fresh)
 
     def remove_torrent(self, torrent_info):
         torrent_hash = ''
@@ -296,16 +430,3 @@ class TM(TorrentClient):
     def torrent_tags(torrent):
         # Transmission calls them labels and exposes them as a list.
         return list(torrent.get('labels') or [])
-
-    def all_topics(self):
-        pattern = r'^https?://([A-z-]*)\..*[d=](\d*)$'
-        comments = []
-        skipped = 0
-        for torrent in self.client.get_torrents():
-            if self.skipped(torrent.fields):
-                skipped += 1
-                continue
-            comments.append(torrent.comment)
-        self.log_skipped(skipped)
-        topics = extract_topics(pattern, comments)
-        return topics

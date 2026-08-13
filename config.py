@@ -37,7 +37,11 @@ def get_ids_from_file(update_file, tracker_ids):
                 tracker = re.match(tracker_pattern, line).group(1).lower()
             else:
                 topic_id = re.match(id_pattern, line).group(1)
-                tracker_ids[tracker].append(topic_id)
+                # The same id listed twice would mean a second trip to the
+                # tracker for a topic already handled in this run, against a
+                # torrent the client no longer has.
+                if topic_id and topic_id not in tracker_ids[tracker]:
+                    tracker_ids[tracker].append(topic_id)
     return tracker_ids
 
 

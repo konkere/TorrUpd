@@ -72,6 +72,55 @@ def _login_response_looks_unauthenticated(html):
     return any(marker in lowered for marker in markers)
 
 
+# FlareSolverr timings. maxTimeout is the solver's own budget for getting
+# past the challenge; the HTTP timeout has to cover that plus the browser
+# startup, and the very first solve after the FlareSolverr container comes
+# up regularly needs a minute or more just to bring Chrome online — a
+# too-tight timeout there costs a whole topic for no reason. The retry is
+# aimed at exactly that case: by the second attempt the browser is warm and
+# the same solve typically takes seconds.
+FS_MAX_TIMEOUT = 60000
+FS_REQUEST_TIMEOUT = 180
+FS_ATTEMPTS = 2
+FS_RETRY_DELAY = 5
+
+
+def flaresolverr_request(flaresolverr_url, payload, what):
+    """
+    POST to FlareSolverr and return the parsed response, or None.
+
+    No impersonate=: this call goes to our own FlareSolverr instance, not to
+    the tracker's Cloudflare-fronted domain — nothing here needs a
+    browser-like TLS fingerprint. FlareSolverr's headless browser handles
+    that on the request it makes on our behalf.
+    """
+    for attempt in range(FS_ATTEMPTS):
+        started = time.monotonic()
+        try:
+            response = requests.post(flaresolverr_url, json=payload, timeout=FS_REQUEST_TIMEOUT)
+            data = response.json()
+        except (RequestException, ValueError) as exc:
+            logging.error(
+                f'[flaresolverr] {what} request failed after {time.monotonic() - started:.0f}s '
+                f'(attempt {attempt + 1}/{FS_ATTEMPTS}): {exc}'
+            )
+            data = None
+        else:
+            if data.get('status') == 'ok':
+                logging.info(
+                    f'[flaresolverr] {what} solved in {time.monotonic() - started:.0f}s'
+                )
+                return data
+            logging.error(
+                f'[flaresolverr] solver status={data.get("status")} '
+                f'(attempt {attempt + 1}/{FS_ATTEMPTS}): {data.get("message")}'
+            )
+            data = None
+        if attempt + 1 < FS_ATTEMPTS:
+            time.sleep(FS_RETRY_DELAY)
+    return None
+
+
 def solve_login_via_flaresolverr(flaresolverr_url, login_url, post_params):
     """
     Perform the tracker's own login POST *through* FlareSolverr instead of a
@@ -99,20 +148,10 @@ def solve_login_via_flaresolverr(flaresolverr_url, login_url, post_params):
         'cmd': 'request.post',
         'url': login_url,
         'postData': body,
-        'maxTimeout': 60000,
+        'maxTimeout': FS_MAX_TIMEOUT,
     }
-    try:
-        # No impersonate=: this call goes to our own FlareSolverr instance,
-        # not to the tracker's Cloudflare-fronted domain — nothing here needs
-        # a browser-like TLS fingerprint. FlareSolverr's headless browser
-        # handles that on the actual login request it makes on our behalf.
-        response = requests.post(flaresolverr_url, json=payload, timeout=70)
-        data = response.json()
-    except (RequestException, ValueError) as exc:
-        logging.error(f'[flaresolverr] login request failed: {exc}')
-        return None, None
-    if data.get('status') != 'ok':
-        logging.error(f'[flaresolverr] solver status={data.get("status")}: {data.get("message")}')
+    data = flaresolverr_request(flaresolverr_url, payload, 'login')
+    if data is None:
         return None, None
     solution = data.get('solution', {})
     if _login_response_looks_unauthenticated(solution.get('response', '')):
@@ -172,15 +211,9 @@ def solve_challenge_via_flaresolverr(flaresolverr_url, target_url):
 
     Returns (cookie_header_string, user_agent) or (None, None) on failure.
     """
-    payload = {'cmd': 'request.get', 'url': target_url, 'maxTimeout': 60000}
-    try:
-        response = requests.post(flaresolverr_url, json=payload, timeout=70)
-        data = response.json()
-    except (RequestException, ValueError) as exc:
-        logging.error(f'[flaresolverr] challenge-solve request failed: {exc}')
-        return None, None
-    if data.get('status') != 'ok':
-        logging.error(f'[flaresolverr] solver status={data.get("status")}: {data.get("message")}')
+    payload = {'cmd': 'request.get', 'url': target_url, 'maxTimeout': FS_MAX_TIMEOUT}
+    data = flaresolverr_request(flaresolverr_url, payload, 'challenge-solve')
+    if data is None:
         return None, None
     solution = data.get('solution', {})
     cookies = solution.get('cookies', [])
@@ -309,6 +342,10 @@ class Tracker:
         self.session = session
         self.hash_pattern = r'urn:btih:([A-z0-9]*)'
         self.last_topic_response = None
+        # Set when a page came back as a live Cloudflare challenge that could
+        # not be recovered from, so the caller can say why the topic was
+        # skipped instead of blaming the topic itself.
+        self.cf_blocked = False
         self.request_headers = {}
         if self.auth.get('cookie'):
             self.request_headers['Cookie'] = self.auth['cookie']
@@ -417,6 +454,8 @@ class Tracker:
                 if self._refresh_cf_cookie_merged(url):
                     continue
                 logging.error(f'could not refresh Cloudflare cookie for {url}')
+            if use_cookie and _looks_like_cf_challenge(response):
+                self.cf_blocked = True
             return response
         logging.error(f'request to {url} failed after {attempts} attempts')
         return None
@@ -675,7 +714,7 @@ class BookTracker(Tracker):
 
     Note that the comment in the client may carry an explicit port
     (https://booktracker.org:443/viewtopic.php?p=111111). That only affects
-    how the id is extracted from the comment (client.extract_topics handles
+    how the id is extracted from the comment (client.parse_topic handles
     it) — every URL here is built from the configured tracker URL instead.
     """
 

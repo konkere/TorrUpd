@@ -83,18 +83,42 @@ def run_through_tracker(config, sessions, tracker, trackers):
         if not sessions[tracker] and fresh_tracker.session:
             sessions[tracker] = fresh_tracker.session
         if not fresh_tracker.fingerprint:
+            if getattr(fresh_tracker, 'cf_blocked', False):
+                # The page never actually loaded, so nothing can be said about
+                # the topic itself — commonly the first FlareSolverr solve of
+                # the run, which has to start a browser and can outlast the
+                # timeout. Later topics usually go through on the warm solver.
+                logging.warning(
+                    f'[{tracker}] topic {fresh_tracker.display_id}: still behind a Cloudflare '
+                    f'challenge after a cookie refresh attempt, skipped — the topic itself '
+                    f'was not checked'
+                )
+            else:
+                logging.warning(
+                    f'[{tracker}] topic {fresh_tracker.display_id}: no fingerprint on tracker '
+                    f'(topic removed/closed, or login/layout issue), skipped'
+                )
+            continue
+        fingerprint_key = trackers[tracker]['fingerprint']
+        # A missing value is not a difference: without it there is nothing to
+        # compare against, and updating anyway would replace a torrent that
+        # may well be up to date. Happens when the client does not report the
+        # field at all (e.g. Transmission asked for a narrowed set of fields).
+        current_value = current_torrent.get(fingerprint_key)
+        if current_value is None or current_value == '':
             logging.warning(
-                f'[{tracker}] topic {fresh_tracker.display_id}: no fingerprint on tracker '
-                f'(topic removed/closed, or login/layout issue), skipped'
+                f'[{tracker}] topic {fresh_tracker.display_id}: client reported no '
+                f'"{fingerprint_key}" for "{current_torrent["name"]}", nothing to compare '
+                f'against, skipped'
             )
             continue
-        current_fingerprint = str(current_torrent[trackers[tracker]['fingerprint']]).lower()
+        current_fingerprint = str(current_value).lower()
         if current_fingerprint == fresh_tracker.fingerprint.lower():
             logging.info(f'[{tracker}] topic {fresh_tracker.display_id}: up to date')
             continue
         logging.info(
             f'[{tracker}] topic {fresh_tracker.display_id}: change detected '
-            f'({trackers[tracker]["fingerprint"]} differs), updating "{current_torrent["name"]}"'
+            f'({fingerprint_key} differs), updating "{current_torrent["name"]}"'
         )
         new_torrent_name, new_torrent = get_torrent(fresh_tracker, tracker, fresh_tracker.display_id)
         if new_torrent_name and new_torrent:
@@ -111,6 +135,10 @@ def run_through_tracker(config, sessions, tracker, trackers):
                         f'"{current_torrent["name"]}" -> "{new_torrent_name}"'
                     )
                 continue
+            # The client is read once per run, so state/path/tags come from a
+            # snapshot taken before the trackers were walked. Only torrents
+            # that are actually being updated are re-read, one request each.
+            current_torrent = config.client.refresh_torrent(current_torrent)
             data = {
                 'category': current_torrent['category'],
                 'tags': current_torrent['tags'],
