@@ -89,12 +89,13 @@ def _login_response_looks_unauthenticated(html):
 
 
 # FlareSolverr timings. maxTimeout is the solver's own budget for getting
-# past the challenge; the HTTP timeout has to cover that plus the browser
-# startup, and the very first solve after the FlareSolverr container comes
-# up regularly needs a minute or more just to bring Chrome online — a
-# too-tight timeout there costs a whole topic for no reason. The retry is
-# aimed at exactly that case: by the second attempt the browser is warm and
-# the same solve typically takes seconds.
+# past the challenge: a healthy container clears one in about ten seconds,
+# so a minute is already generous, and raising it only makes a hopeless
+# attempt cost longer. The HTTP timeout is the loose one instead — it has to
+# cover that budget plus the browser startup, and the first solve after the
+# container comes up regularly needs a minute or more just to bring Chrome
+# online. The retry is aimed at exactly that case: by the second attempt the
+# browser is warm and the same solve typically takes seconds.
 FS_MAX_TIMEOUT = 60000
 FS_REQUEST_TIMEOUT = 180
 FS_ATTEMPTS = 2
@@ -127,9 +128,15 @@ def flaresolverr_request(flaresolverr_url, payload, what):
                     f'[flaresolverr] {what} solved in {time.monotonic() - started:.0f}s'
                 )
                 return data
+            # Worth retrying even though the solver answered: a cold start
+            # shows up both as a dropped connection and as the solver's own
+            # "Timeout after 60.0 seconds" (bringing the browser up eats the
+            # maxTimeout budget). Observed in practice: attempt one times out
+            # at 60s, attempt two solves the same challenge in 12s.
             logging.error(
-                f'[flaresolverr] solver status={data.get("status")} '
-                f'(attempt {attempt + 1}/{FS_ATTEMPTS}): {data.get("message")}'
+                f'[flaresolverr] {what} failed after {time.monotonic() - started:.0f}s '
+                f'(attempt {attempt + 1}/{FS_ATTEMPTS}), '
+                f'status={data.get("status")}: {data.get("message")}'
             )
             data = None
         if attempt + 1 < FS_ATTEMPTS:
@@ -480,6 +487,15 @@ class Tracker:
         fs_url = self.auth.get('flaresolverr')
         if not fs_url:
             return False
+        # Once the solver has failed to get past Cloudflare, it will keep
+        # failing for the rest of the run: the block is on Cloudflare's side,
+        # not something a fresh attempt changes. Asking again for every
+        # remaining topic would add a full solver timeout each — minutes of
+        # waiting per topic — so the flag is kept on the shared auth dict and
+        # every later topic is skipped immediately instead. Topics that are
+        # not challenged still go through normally.
+        if self.auth.get('cf_solve_failed'):
+            return False
         # Solve for the exact URL being fetched, not the site root: Cloudflare
         # can apply different rules per path on these trackers, and clearance
         # obtained on the root does not necessarily cover /forum/ pages.
@@ -487,6 +503,11 @@ class Tracker:
             fs_url, target_url or self.auth['url']
         )
         if not new_cookie:
+            self.auth['cf_solve_failed'] = True
+            logging.error(
+                'FlareSolverr could not get past Cloudflare — not asking it again this '
+                'run, any further challenged topic is skipped straight away'
+            )
             return False
         # Merge, don't replace — a plain-GET solve only ever yields
         # Cloudflare's own cookies, never a real login session cookie, so
