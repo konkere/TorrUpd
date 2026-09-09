@@ -68,6 +68,7 @@ class Conf:
         'rutracker': 'RuTracker',
         'nnmclub': 'NNMClub',
         'booktracker': 'BookTracker',
+        'kinozal': 'Kinozal',
     }
 
     def __init__(self):
@@ -107,6 +108,9 @@ class Conf:
                 'url': self.read_config('Kinozal', 'url'),
                 'username': self.read_config('Kinozal', 'username'),
                 'password': self.read_config('Kinozal', 'password'),
+                'cookie': self.read_config('Kinozal', 'cookie'),
+                'useragent': self.read_config('Kinozal', 'useragent'),
+                'flaresolverr': self.read_config('FlareSolverr', 'url'),
             },
             'booktracker': {
                 'url': self.read_config('BookTracker', 'url'),
@@ -173,9 +177,11 @@ class Conf:
         self.config.set('TeamHD', 'url', 'https://teamhd.org')
         self.config.set('TeamHD', 'passkey', '1a2b3c4d5e6f7g8h9i0j10k11l12m13n')
         self.config.add_section('Kinozal')
-        self.config.set('Kinozal', 'url', 'https://kinozal.tv')
+        self.config.set('Kinozal', 'url', 'https://kinozal.guru')
         self.config.set('Kinozal', 'username', 'KTVUsername')
         self.config.set('Kinozal', 'password', 'KTVPassword')
+        self.config.set('Kinozal', 'cookie', '')
+        self.config.set('Kinozal', 'useragent', '')
         self.config.add_section('BookTracker')
         self.config.set('BookTracker', 'url', 'https://booktracker.org')
         self.config.set('BookTracker', 'username', 'BTUsername')

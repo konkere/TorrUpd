@@ -77,11 +77,11 @@ Optional:
 
 - ``announcekey`` in ``[RuTracker]`` — workaround for broken announcers.
 - ``passkey`` in ``[TeamHD]``.
-- ``cookie`` and ``useragent`` in ``[RuTracker]`` and ``[NNMClub]`` — see [instructions for obtaining them](README_get_cookie.md).
+- ``cookie`` and ``useragent`` in ``[RuTracker]``, ``[NNMClub]``, ``[Kinozal]`` and ``[BookTracker]`` — see [instructions for obtaining them](README_get_cookie.md). Filled in automatically when FlareSolverr logs in for you.
 - ``url`` in ``[FlareSolverr]`` — see [Cloudflare and FlareSolverr](#cloudflare-and-flaresolverr).
 - ``dry_run`` in ``[Settings]`` — see [Dry run](#dry-run).
 - ``skip_tags`` in ``[Settings]`` — see [Keeping a torrent as is](#keeping-a-torrent-as-is).
-- ``url`` in tracker sections — if a tracker URL changes or you want to use a mirror.
+- ``url`` in tracker sections — if a tracker URL changes or you want to use a mirror (Kinozal, for one, is routinely reachable on one mirror while another is down for maintenance).
 
 **2. ``update.list``**
 
@@ -89,7 +89,7 @@ Topic IDs under the matching tracker sections, one ID per line (a comment may be
 
 #### Cloudflare and FlareSolverr:
 
-RuTracker and NNM-Club are behind Cloudflare. TorrUpd impersonates a real browser's TLS fingerprint, which alone is not enough — Cloudflare also issues a clearance cookie that has to be obtained by a browser.
+RuTracker, NNM-Club, Kinozal and BookTracker are behind Cloudflare. TorrUpd impersonates a real browser's TLS fingerprint, which alone is not enough — Cloudflare also issues a clearance cookie that has to be obtained by a browser.
 
 There are two ways to supply it, and they work together:
 
@@ -108,6 +108,10 @@ TorrUpd then uses it in two situations:
 - If Cloudflare raises a challenge in the middle of a run, TorrUpd asks FlareSolverr to solve it for that exact URL and merges the fresh clearance into the cookie it already has, keeping the existing login session intact.
 
 > **Note:** FlareSolverr cannot solve image CAPTCHAs. If a tracker shows one on its login form (RuTracker does), the automatic login will not go through — that case still needs a cookie copied from your browser. Challenge solving mid-run works regardless, since it needs no login.
+
+Where the login form itself carries no CAPTCHA (Kinozal, for one), the automatic path covers everything: the run starts with a 403, ends with a working session, and no cookie has to be copied by hand. A solved cookie is written back to ``settings.conf``, so later runs reach the tracker directly and FlareSolverr is only called again once the clearance expires.
+
+> **Note:** saving the cookie rewrites ``settings.conf`` in full, and comments in it are not preserved.
 
 Without a configured FlareSolverr, TorrUpd simply relies on the cookie from ``settings.conf`` and skips a tracker if Cloudflare blocks it.
 
@@ -152,6 +156,7 @@ Common messages:
 - ``topic <id>: tagged "stasis", left as is`` — the same thing when ``source = file``, where topics are checked one by one.
 - ``topic <id>: change detected (hash differs), updating "..."`` — a new version was found.
 - ``topic <id>: no fingerprint on tracker`` — the topic page could not be read: the topic is gone or closed, or the cookie/login has expired.
+- ``redirected to the login page`` — the tracker answered with its login form instead of the topic: the session cookie is missing or has expired.
 - ``downloaded data is not a valid torrent`` — a page was returned instead of a torrent file, usually an expired cookie or a Cloudflare challenge.
 - ``[flaresolverr] login was not accepted`` — the automatic login hit a CAPTCHA; supply a cookie manually.
 

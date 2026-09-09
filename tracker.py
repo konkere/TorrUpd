@@ -65,7 +65,21 @@ def rss_parser(rss_url, ids):
     return list(result_entries.values())
 
 
-def _login_response_looks_unauthenticated(html):
+# Markers that mean "this page is still the login form / a CAPTCHA prompt",
+# checked against the response FlareSolverr got back from the login POST.
+# CAPTCHA wording is common to every tracker; the form-field names are not,
+# and must stay per-tracker (see Tracker.login_failure_markers): Kinozal's
+# own login field is literally name="username", so applying NNMClub's marker
+# to it would throw away a perfectly good session cookie as a false "login
+# rejected".
+LOGIN_FAILURE_MARKERS = (
+    'cap_sid',                    # rutracker/nnmclub CAPTCHA field
+    'капч',                       # "капча"/"капчи" etc.
+    'код подтверждения',          # CAPTCHA prompt wording
+)
+
+
+def _login_response_looks_unauthenticated(html, markers=None):
     """
     Heuristic check on the page FlareSolverr got back after submitting the
     login POST. A genuinely successful login redirects away from the login
@@ -78,13 +92,8 @@ def _login_response_looks_unauthenticated(html):
     if not html:
         return False
     lowered = html.lower()
-    markers = (
-        'cap_sid',                    # rutracker/nnmclub CAPTCHA field
-        'капч',                       # "капча"/"капчи" etc.
-        'код подтверждения',          # CAPTCHA prompt wording
-        'name="login_username"',      # rutracker login form still showing
-        'name="username"',            # nnmclub login form still showing
-    )
+    if markers is None:
+        markers = LOGIN_FAILURE_MARKERS
     return any(marker in lowered for marker in markers)
 
 
@@ -144,7 +153,7 @@ def flaresolverr_request(flaresolverr_url, payload, what):
     return None
 
 
-def solve_login_via_flaresolverr(flaresolverr_url, login_url, post_params):
+def solve_login_via_flaresolverr(flaresolverr_url, login_url, post_params, markers=None):
     """
     Perform the tracker's own login POST *through* FlareSolverr instead of a
     plain GET. This way the browser solves the Cloudflare challenge and logs
@@ -177,7 +186,7 @@ def solve_login_via_flaresolverr(flaresolverr_url, login_url, post_params):
     if data is None:
         return None, None
     solution = data.get('solution', {})
-    if _login_response_looks_unauthenticated(solution.get('response', '')):
+    if _login_response_looks_unauthenticated(solution.get('response', ''), markers):
         logging.error(
             '[flaresolverr] login was not accepted — the response still shows a login '
             'form or CAPTCHA prompt (most likely the site requires solving a CAPTCHA, '
@@ -320,7 +329,10 @@ def resolve_tracker_access(tracker_name, auth, tracker_class, attempts=5):
 
     login_url, post_params = tracker_class.login_url_and_params(auth)
     logging.info(f'[{tracker_name}] logging in via FlareSolverr to obtain a Cloudflare + session cookie')
-    cookie, useragent = solve_login_via_flaresolverr(fs_url, login_url, post_params)
+    cookie, useragent = solve_login_via_flaresolverr(
+        fs_url, login_url, post_params,
+        getattr(tracker_class, 'login_failure_markers', None),
+    )
     if not cookie:
         logging.error(f'[{tracker_name}] FlareSolverr login failed, skipping this run')
         return False, False
@@ -351,6 +363,9 @@ class Tracker:
     # the built-in default is utf-8, which mangles cp1251 pages into U+FFFD
     # and breaks parsing (e.g. Kinozal's size field).
     default_encoding = 'utf-8'
+
+    # Extended per tracker with that tracker's own login-form field names.
+    login_failure_markers = LOGIN_FAILURE_MARKERS
 
     def __init__(self, auth, topic_id, session=None):
         self.auth = auth
@@ -528,8 +543,6 @@ class Tracker:
         )
         return True
 
-        return None
-
     def download_torrent(self):
         pass
 
@@ -537,6 +550,7 @@ class Tracker:
 class RuTracker(Tracker):
 
     default_encoding = 'windows-1251'
+    login_failure_markers = LOGIN_FAILURE_MARKERS + ('name="login_username"',)
 
     @staticmethod
     def login_url_and_params(auth):
@@ -596,6 +610,7 @@ class RuTracker(Tracker):
 class NNMClub(Tracker):
 
     default_encoding = 'windows-1251'
+    login_failure_markers = LOGIN_FAILURE_MARKERS + ('name="username"',)
 
     @staticmethod
     def login_url_and_params(auth):
@@ -673,14 +688,36 @@ class TeamHD(Tracker):
 class Kinozal(Tracker):
 
     default_encoding = 'windows-1251'
+    # Deliberately just the base markers: Kinozal's own login field is
+    # name="username", so NNMClub's marker would flag every successful login
+    # here as rejected.
+
+    @staticmethod
+    def login_url_and_params(auth):
+        """
+        Presence of this method is what torrent_updater.main() checks with
+        hasattr() to route a tracker through the Cloudflare-aware path
+        (resolve_tracker_access). Without it Kinozal fell through to the
+        fallback branch — a plain requests.get with no impersonation, no
+        cookie and no FlareSolverr — which against Cloudflare can only ever
+        produce five 403s and "unreachable, skipped".
+
+        Kinozal's form posts straight to takelogin.php and has no submit
+        field, hence no 'login' key here.
+        """
+        login_url = urljoin(auth['url'], 'takelogin.php')
+        post_params = {
+            'username': auth['username'].encode('Windows-1251'),
+            'password': auth['password'],
+        }
+        return login_url, post_params
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.post_params['username'] = self.auth['username'].encode('Windows-1251')
-        self.post_params['password'] = self.auth['password']
-        del self.post_params['login']
         self.base_url = self.auth['url']
-        self.login_url = urljoin(self.base_url, 'takelogin.php')
+        self.login_url, login_params = self.login_url_and_params(self.auth)
+        self.post_params.pop('login', None)
+        self.post_params.update(login_params)
         self.topic_url = urljoin(self.base_url, f'details.php?id={self.topic_id}')
         self.download_url = urljoin(
             add_subdomain(self.base_url, 'dl'), f'download.php?id={self.topic_id}'
@@ -688,10 +725,16 @@ class Kinozal(Tracker):
         self.fingerprint = self.get_actual_weight()
 
     def download_torrent(self):
-        if not self.session:
-            self.create_session()
-        torrent = self.session.get(self.download_url).content
-        return torrent
+        # Was self.session.get(), bypassing the cookie entirely: in cookie
+        # mode the session is empty, so create_session() would POST to
+        # takelogin.php on the main domain — the one behind Cloudflare — and
+        # the client would receive an HTML page instead of a torrent. The
+        # cf_clearance is issued for the whole registrable domain, so it
+        # covers the dl.* subdomain as well; dl.* itself is not challenged
+        # (it answers anonymous requests with a 302 to login.php), so the
+        # session cookie is what actually matters there.
+        response = self.authenticated_get(self.download_url)
+        return response.content if response is not None else None
 
     def get_actual_weight(self):
         weight = ''
@@ -703,6 +746,15 @@ class Kinozal(Tracker):
                 logging.error(
                     f'[kinozal] failed to fetch {self.topic_url} '
                     f'(attempt {attempt + 1}/5)'
+                )
+                continue
+            # An expired or missing session lands here as the login page
+            # rather than an error, which would otherwise be reported as a
+            # layout change and send you looking in the wrong place.
+            if 'login.php' in str(getattr(response, 'url', '')):
+                logging.warning(
+                    f'[kinozal] redirected to the login page from {self.topic_url} '
+                    f'(attempt {attempt + 1}/5, session cookie missing or expired)'
                 )
                 continue
             topic = BeautifulSoup(response.text, features='html.parser')
@@ -754,6 +806,8 @@ class BookTracker(Tracker):
     how the id is extracted from the comment (client.parse_topic handles
     it) — every URL here is built from the configured tracker URL instead.
     """
+
+    login_failure_markers = LOGIN_FAILURE_MARKERS + ('name="login_username"',)
 
     @staticmethod
     def login_url_and_params(auth):
