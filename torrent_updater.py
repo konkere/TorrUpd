@@ -6,7 +6,17 @@ import requests
 from urllib.parse import urljoin
 from config import Conf, log_file_path
 from bencoder import bdecode, BTFailure
+from logging.handlers import RotatingFileHandler
 from tracker import RuTracker, NNMClub, TeamHD, Kinozal, BookTracker, rss_parser, resolve_tracker_access
+
+
+# Log rotation: torrent_updater.log is capped at LOG_MAX_BYTES, then renamed
+# to .log.1 (older ones shift to .2 … .5; the oldest is dropped). The size is
+# checked on every write, so this works across separate short-lived runs
+# too, not only within one long process. At ~70 bytes per topic line one
+# file holds ~150 runs of 1000 topics; a run full of warnings is much bigger.
+LOG_MAX_BYTES = 10 * 1024 * 1024
+LOG_BACKUP_COUNT = 5
 
 
 def setup_logging(log_file):
@@ -19,7 +29,9 @@ def setup_logging(log_file):
     # have attached before us, otherwise every record is emitted twice.
     root.handlers.clear()
     root.setLevel(logging.INFO)
-    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler = RotatingFileHandler(
+        log_file, maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUP_COUNT, encoding='utf-8'
+    )
     file_handler.setFormatter(formatter)
     root.addHandler(file_handler)
     stream_handler = logging.StreamHandler()

@@ -149,6 +149,8 @@ An empty value disables the feature.
 
 Each run writes a log to ``torrent_updater.log`` in the config directory (``$HOME/.config/TorrUpd/`` or ``/PATH/TO/HOST/DIR`` for Docker) and to stdout, so for the Docker container the same output is available via ``docker logs torrupd``. The log covers what was checked, what was updated, and any tracker or client errors. Timestamps follow the system timezone (for Docker, set it via ``-e TZ=``, otherwise UTC is used).
 
+The log file is rotated by size: once it reaches 10 MB it is renamed to ``torrent_updater.log.1`` (older ones shift to ``.2`` … ``.5``, the oldest is deleted), so at most ~60 MB of logs are kept. With 1000 topics a normal run adds roughly 70 KB, so a single file covers about 150 runs.
+
 Common messages:
 
 - ``topic <id>: up to date`` — nothing to do.
