@@ -104,7 +104,7 @@ url = http://flaresolverr:8191/v1
 
 TorrUpd then uses it in two situations:
 
-- If a tracker answers with HTTP 403 at the start of a run, TorrUpd asks FlareSolverr to log in through it and stores the resulting cookie back into ``settings.conf``.
+- If a tracker answers with HTTP 403 at the start of a run (or, while no cookie is set, its login page does — some mirrors leave the main page open and challenge everything else), TorrUpd asks FlareSolverr to log in through it and stores the resulting cookie back into ``settings.conf``.
 - If Cloudflare raises a challenge in the middle of a run, TorrUpd asks FlareSolverr to solve it for that exact URL and merges the fresh clearance into the cookie it already has, keeping the existing login session intact.
 
 > **Note:** FlareSolverr cannot solve image CAPTCHAs. If a tracker shows one on its login form (RuTracker does), the automatic login will not go through — that case still needs a cookie copied from your browser. Challenge solving mid-run works regardless, since it needs no login.

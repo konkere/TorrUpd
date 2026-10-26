@@ -287,6 +287,23 @@ def resolve_tracker_access(tracker_name, auth, tracker_class, attempts=5):
     log in *through* it — a single request that yields a cookie good for
     both reading topic pages and downloading torrents.
 
+    Without a cookie, a 200 on the root alone is not trusted, though: some
+    mirrors serve an anonymous root without any challenge while still
+    challenging every other page — seen on kinozal.me, whose root answers
+    200 while details.php and takelogin.php answer 403 "Just a moment...".
+    The plain session login then fails silently against Cloudflare, and
+    session mode has no challenge recovery of its own. So in that case the
+    login page is probed as well, and a Cloudflare block there is treated
+    like a 403 on the root. Only a block counts: any other answer from the
+    login page (or a failed request to it) leaves the root's verdict as is.
+
+    With a cookie this extra probe is deliberately skipped: cookie mode
+    already recovers from a challenge mid-run (authenticated_get) by merging
+    fresh clearance into the existing cookie, keeping the login session. A
+    full FlareSolverr login here instead would replace a working session
+    and, on trackers with a CAPTCHA on the login form, fail outright and
+    skip the whole tracker for the run.
+
     Mutates `auth` in place (sets/overwrites 'cookie' and 'useragent') only
     when a *new* cookie is obtained via FlareSolverr this call.
 
@@ -301,27 +318,46 @@ def resolve_tracker_access(tracker_name, auth, tracker_class, attempts=5):
     if auth.get('useragent'):
         headers['User-Agent'] = auth['useragent']
 
-    cf_blocked = False
+    def is_cf_block(response):
+        return response.status_code == 403 or _looks_like_cf_challenge(response)
+
+    blocked_at = None
     for attempt in range(attempts):
         try:
             response = requests.get(auth['url'], headers=headers, impersonate='chrome', timeout=30)
         except RequestException as exc:
             logging.error(f'[{tracker_name}] reachability check failed (attempt {attempt + 1}/{attempts}): {exc}')
             continue
-        if response.status_code == 200:
-            return True, False
         if response.status_code == 403:
-            cf_blocked = True
+            blocked_at = 'site root'
             break  # retrying against a live Cloudflare challenge won't help
+        if response.status_code == 200:
+            if auth.get('cookie'):
+                return True, False
+            login_url, _ = tracker_class.login_url_and_params(auth)
+            try:
+                login_response = requests.get(
+                    login_url, headers=headers, impersonate='chrome', timeout=30
+                )
+            except RequestException as exc:
+                logging.warning(f'[{tracker_name}] login page check failed, relying on the root: {exc}')
+                return True, False
+            if not is_cf_block(login_response):
+                return True, False
+            response = login_response
+            blocked_at = 'login page (site root is open)'
+            break
         logging.warning(
             f'[{tracker_name}] HTTP {response.status_code} on reachability check '
             f'(attempt {attempt + 1}/{attempts})'
         )
 
-    if not cf_blocked:
+    if not blocked_at:
         return False, False
 
-    logging.info(f'[{tracker_name}] HTTP 403 — looks Cloudflare-blocked')
+    logging.info(
+        f'[{tracker_name}] HTTP {response.status_code} on the {blocked_at} — looks Cloudflare-blocked'
+    )
     fs_url = auth.get('flaresolverr')
     if not fs_url:
         logging.error(f'[{tracker_name}] blocked by Cloudflare and no flaresolverr configured, skipping')
